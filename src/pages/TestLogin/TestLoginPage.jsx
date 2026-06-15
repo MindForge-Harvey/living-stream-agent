@@ -5,7 +5,18 @@ import styles from './TestLogin.module.css'
 export default function TestLoginPage() {
   const [userId, setUserId] = useState('')
   const [staffName, setStaffName] = useState('')
+  const [password, setPassword] = useState('')
   const navigate = useNavigate()
+
+  const TEST_PASSWORD = '123456'
+
+  const checkPassword = () => {
+    if (password !== TEST_PASSWORD) {
+      alert('密码错误')
+      return false
+    }
+    return true
+  }
 
   const handleSubmit = (e) => {
     e.preventDefault()
@@ -13,6 +24,7 @@ export default function TestLoginPage() {
       alert('请输入用户ID')
       return
     }
+    if (!checkPassword()) return
 
     // 模拟平台登录，发送 postMessage
     const userInfo = {
@@ -45,6 +57,7 @@ export default function TestLoginPage() {
       alert('请输入用户ID')
       return
     }
+    if (!checkPassword()) return
 
     // 直接跳转并传递参数
     const params = new URLSearchParams({
@@ -84,6 +97,17 @@ export default function TestLoginPage() {
               value={staffName}
               onChange={(e) => setStaffName(e.target.value)}
               placeholder="请输入姓名"
+            />
+          </div>
+
+          <div className={styles.field}>
+            <label className={styles.label}>密码 <span className={styles.required}>*</span></label>
+            <input
+              className={styles.input}
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="请输入访问密码"
             />
           </div>
 
