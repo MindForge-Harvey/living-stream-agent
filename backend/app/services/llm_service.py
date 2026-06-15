@@ -286,7 +286,7 @@ class LLMService:
         yield "## ✨ 第三步：脚本优化订正\n\n"
         yield "正在根据评估结果对脚本进行优化...\n\n"
 
-        revision_prompt = SCRIPT_REVISION_PROMPT + fw_prompt
+        revision_prompt = SCRIPT_REVISION_PROMPT + fw_prompt + memory_prompt
         async for chunk in self._stream_llm_call(
             [
                 {"role": "system", "content": revision_prompt},
