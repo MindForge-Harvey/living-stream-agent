@@ -7,8 +7,7 @@ import styles from './Admin.module.css'
 function MarkdownContent({ content }) {
   const html = useMemo(() => {
     const processed = (content || '').replace(/\\n/g, '\n')
-    const result = marked.parse(processed.replace(/<br\s*\/?>/g, '  \n'), {
-      breaks: true,
+    const result = marked.parse(processed, {
       gfm: true
     })
     return typeof result === 'string' ? result : ''
