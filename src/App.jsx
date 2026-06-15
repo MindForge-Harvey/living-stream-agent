@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar/Sidebar'
 import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
 import InputArea from './components/InputArea/InputArea'
+import MemoryDrawer from './components/MemoryDrawer/MemoryDrawer'
 import Toast, { showToast } from './components/Toast/Toast'
 import styles from './App.module.css'
 
@@ -34,6 +35,7 @@ export default function App({ userInfo }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState({ connected: false })
   const [loadingDialogs, setLoadingDialogs] = useState(false)
+  const [memoryDrawerOpen, setMemoryDrawerOpen] = useState(false)
   const abortControllerRef = useRef(null)
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
@@ -223,7 +225,7 @@ export default function App({ userInfo }) {
             }
             return updated
           })
-        }, controller.signal)
+        }, controller.signal, userId)
 
         const finalMsg = messagesRef.current[messagesRef.current.length - 1]
         if (finalMsg?.role === 'assistant') {
@@ -322,6 +324,7 @@ export default function App({ userInfo }) {
           tool={AGENT_INFO}
           onBack={() => setSidebarOpen((v) => !v)}
           onClear={clearChat}
+          onMemory={() => setMemoryDrawerOpen(true)}
         />
         {currentDialog ? (
           <ChatArea
@@ -352,6 +355,11 @@ export default function App({ userInfo }) {
           onDisabledClick={createNewDialog} 
         />
       </main>
+      <MemoryDrawer
+        open={memoryDrawerOpen}
+        onClose={() => setMemoryDrawerOpen(false)}
+        userId={userId}
+      />
     </div>
   )
 }

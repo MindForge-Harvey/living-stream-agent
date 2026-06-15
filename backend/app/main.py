@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import auth, agent, admin, dialogs, forbidden_words
+from app.api import auth, agent, admin, dialogs, forbidden_words, memories
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -48,6 +48,7 @@ app.include_router(admin.router, prefix="/chat/api")
 app.include_router(dialogs.router, prefix="/chat/api")
 app.include_router(agent.router, prefix="/chat/api")
 app.include_router(forbidden_words.router, prefix="/chat")
+app.include_router(memories.router, prefix="/chat/api")
 
 
 @app.get("/chat/api/health")

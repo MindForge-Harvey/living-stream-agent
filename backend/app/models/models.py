@@ -68,6 +68,18 @@ class ForbiddenWord(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     word = Column(String(200), index=True)
     replacement = Column(String(200), default="***")
+    level = Column(String(20), default="multi")  # single=单字, multi=多字
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class UserMemory(Base):
+    """用户长期记忆"""
+    __tablename__ = "user_memories"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String(100), index=True, nullable=False)
+    content = Column(Text, nullable=False)
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 

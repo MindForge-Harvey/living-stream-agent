@@ -25,6 +25,11 @@ async def get_all_forbidden_words(db: Session = Depends(get_db), _admin=Depends(
     return words
 
 
+def _auto_level(word: str) -> str:
+    """根据字数自动判断级别"""
+    return "single" if len(word) == 1 else "multi"
+
+
 @router.post("", response_model=ForbiddenWordResponse)
 async def create_forbidden_word(
     data: ForbiddenWordCreate,
@@ -36,7 +41,8 @@ async def create_forbidden_word(
     if existing:
         raise HTTPException(status_code=400, detail=f"违禁词 '{data.word}' 已存在")
 
-    word = ForbiddenWord(word=data.word, replacement=data.replacement)
+    level = data.level if data.level else _auto_level(data.word)
+    word = ForbiddenWord(word=data.word, replacement=data.replacement, level=level)
     db.add(word)
     db.commit()
     db.refresh(word)
@@ -117,6 +123,7 @@ async def import_forbidden_words(
 
             word = str(row[0]).strip()
             replacement = str(row[1]).strip() if len(row) > 1 and row[1] else "***"
+            level = str(row[2]).strip() if len(row) > 2 and row[2] else _auto_level(word)
 
             if not word:
                 continue
@@ -128,7 +135,7 @@ async def import_forbidden_words(
                 skipped_count += 1
                 continue
 
-            db.add(ForbiddenWord(word=word, replacement=replacement))
+            db.add(ForbiddenWord(word=word, replacement=replacement, level=level))
             imported_count += 1
 
         db.commit()

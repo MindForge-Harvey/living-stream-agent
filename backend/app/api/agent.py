@@ -17,7 +17,8 @@ from markitdown import MarkItDown
 from app.core.database import get_db
 from app.services.llm_service import llm_service
 from app.services.forbidden_word_service import forbidden_word_service
-from app.models.models import DialogMessage
+from app.services.memory_service import memory_service
+from app.models.models import DialogMessage, UserMemory
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +67,14 @@ async def get_status():
             "score_script",      # 脚本打分评价
             "revise_script",     # 脚本订正优化
             "analyze_script",    # 脚本结构分析
+            "save_memory",       # 保存用户记忆
             "general_chat"       # 普通对话
         ],
         "features": [
             "上下文对话关联",
             "文件上传解析",
             "违禁词过滤",
+            "用户长期记忆",
             "流式输出"
         ]
     }
@@ -123,16 +126,40 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                     "content": msg.content
                 })
 
+        # 加载用户记忆
+        user_memories = []
+        if user_id:
+            user_memories = db.query(UserMemory).filter(
+                UserMemory.user_id == user_id
+            ).order_by(UserMemory.created_at.desc()).all()
+
         async def generate_stream():
+            memory_to_save = None
             async for chunk in llm_service.process_message(
                 user_message=message,
                 file_content=file_content,
                 history=history,
-                force_intent=intent
+                force_intent=intent,
+                user_id=user_id,
+                user_memories=user_memories
             ):
+                # 检测记忆保存信号
+                if chunk.startswith("\n\n__MEMORY_SAVE__:"):
+                    memory_to_save = chunk.split(":", 1)[1].strip()
+                    continue
                 # 违禁词过滤
                 filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, db)
                 yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+
+            # 异步保存记忆到数据库
+            if memory_to_save and user_id:
+                try:
+                    memory = UserMemory(user_id=user_id, content=memory_to_save)
+                    db.add(memory)
+                    db.commit()
+                    logger.info(f"已保存用户记忆: user_id={user_id}, content={memory_to_save[:50]}...")
+                except Exception as e:
+                    logger.error(f"保存记忆失败: {e}")
 
         return StreamingResponse(
             generate_stream(),

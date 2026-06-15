@@ -49,7 +49,7 @@ export default function AdminPage() {
   const [forbiddenWords, setForbiddenWords] = useState([])
   const [forbiddenWordDialogOpen, setForbiddenWordDialogOpen] = useState(false)
   const [forbiddenWordEditItem, setForbiddenWordEditItem] = useState(null)
-  const [forbiddenWordFormData, setForbiddenWordFormData] = useState({ word: '', replacement: '***' })
+  const [forbiddenWordFormData, setForbiddenWordFormData] = useState({ word: '', replacement: '***', level: '' })
   const [forbiddenWordSearchTerm, setForbiddenWordSearchTerm] = useState('')
   const [forbiddenWordCurrentPage, setForbiddenWordCurrentPage] = useState(1)
   const [importing, setImporting] = useState(false)
@@ -243,13 +243,13 @@ export default function AdminPage() {
 
   const handleAddForbiddenWord = () => {
     setForbiddenWordEditItem(null)
-    setForbiddenWordFormData({ word: '', replacement: '***' })
+    setForbiddenWordFormData({ word: '', replacement: '***', level: '' })
     setForbiddenWordDialogOpen(true)
   }
 
   const handleEditForbiddenWord = (item) => {
     setForbiddenWordEditItem(item)
-    setForbiddenWordFormData({ id: item.id, word: item.word, replacement: item.replacement })
+    setForbiddenWordFormData({ id: item.id, word: item.word, replacement: item.replacement, level: item.level || '' })
     setForbiddenWordDialogOpen(true)
   }
 
@@ -498,13 +498,13 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              <div className={styles.importHint}>
+                <div className={styles.importHint}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="16" x2="12" y2="12" />
                   <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
-                Excel格式：第一列为违禁词，第二列为替换词（可选，默认为***）
+                Excel格式：第一列为违禁词，第二列为替换词（可选，默认***），第三列为级别（single/multi，可选，自动判断）
               </div>
 
               <div className={styles.tableWrapper}>
@@ -513,6 +513,7 @@ export default function AdminPage() {
                     <tr>
                       <th>违禁词</th>
                       <th>替换词</th>
+                      <th>级别</th>
                       <th>创建时间</th>
                       <th>操作</th>
                     </tr>
@@ -531,7 +532,7 @@ export default function AdminPage() {
                       if (paginated.length === 0) {
                         return (
                           <tr>
-                            <td colSpan="4" className={styles.empty}>
+                            <td colSpan="5" className={styles.empty}>
                               {forbiddenWordSearchTerm ? '没有找到匹配的违禁词' : '暂无违禁词，点击上方按钮添加或导入'}
                             </td>
                           </tr>
@@ -542,6 +543,7 @@ export default function AdminPage() {
                         <tr key={item.id}>
                           <td className={styles.wordCell}>{item.word}</td>
                           <td>{item.replacement}</td>
+                          <td>{item.level === 'single' ? '单字' : '多字'}</td>
                           <td>{new Date(item.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</td>
                           <td className={styles.actions}>
                             <button className={styles.editBtn} onClick={() => handleEditForbiddenWord(item)}>编辑</button>
@@ -852,6 +854,20 @@ export default function AdminPage() {
                   placeholder="输入替换词（默认为***）"
                 />
                 <div className={styles.hint}>检测到违禁词时将替换为此词</div>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>级别</label>
+                <select
+                  className={styles.input}
+                  value={forbiddenWordFormData.level}
+                  onChange={(e) => setForbiddenWordFormData(prev => ({ ...prev, level: e.target.value }))}
+                >
+                  <option value="">自动判断（按字数）</option>
+                  <option value="single">单字（仅提示 LLM，不做规则替换）</option>
+                  <option value="multi">多字（LLM 提示 + 规则替换）</option>
+                </select>
+                <div className={styles.hint}>单字如"最"，只在 prompt 中提示 LLM；多字会额外做规则替换</div>
               </div>
 
               <div className={styles.dialogActions}>

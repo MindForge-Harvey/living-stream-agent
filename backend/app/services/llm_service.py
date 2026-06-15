@@ -14,6 +14,8 @@ from typing import AsyncGenerator, Optional
 from openai import AsyncOpenAI
 
 from app.core.config import settings
+from app.services.forbidden_word_service import forbidden_word_service
+from app.services.memory_service import memory_service, MEMORY_EXTRACT_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,9 @@ SCRIPT_REVISION_PROMPT = """你是一位专业的直播话术编辑专家。请�
 
 直接输出优化后的完整话术。"""
 
-INTENT_RECOGNITION_PROMPT = """判断意图，只返回一个单词：generate_script/score_script/revise_script/analyze_script/general_chat"""
+INTENT_RECOGNITION_PROMPT = """判断意图，只返回一个单词：generate_script/score_script/revise_script/analyze_script/save_memory/general_chat
+
+save_memory：用户明确要求记住、保存、记忆某些信息时使用。例如"帮我记住xxx"、"请记住我的偏好是xxx"、"把这个记下来"等。"""
 
 PRODUCT_INFO_EXTRACTION_PROMPT = """请从用户的输入中提取产品相关信息，包括：
 1. 产品名称
@@ -186,7 +190,7 @@ class LLMService:
                 stream=False
             )
             intent = response.strip().lower()
-            valid_intents = ["generate_script", "score_script", "revise_script", "analyze_script", "general_chat"]
+            valid_intents = ["generate_script", "score_script", "revise_script", "analyze_script", "save_memory", "general_chat"]
             return intent if intent in valid_intents else "general_chat"
         except Exception as e:
             logger.error(f"意图识别失败: {e}")
@@ -232,7 +236,8 @@ class LLMService:
         self,
         user_message: str,
         file_content: str = None,
-        history: list[dict] = None
+        history: list[dict] = None,
+        memory_prompt: str = ""
     ) -> AsyncGenerator[str, None]:
         """生成直播脚本（流式）"""
         enhanced_message = user_message
@@ -241,13 +246,16 @@ class LLMService:
 
         messages = self._build_context_messages(enhanced_message, history)
 
+        fw_prompt = forbidden_word_service.build_forbidden_word_prompt()
+        system_prompt = SCRIPT_GENERATION_PROMPT + fw_prompt + memory_prompt
+
         # 第一步：生成脚本
         yield "## 📝 第一步：生成直播脚本\n\n"
         yield "正在根据您的需求生成直播脚本，请稍候...\n\n"
 
         script_content = ""
         async for chunk in self._stream_llm_call(
-            [{"role": "system", "content": SCRIPT_GENERATION_PROMPT}] + messages,
+            [{"role": "system", "content": system_prompt}] + messages,
             temperature=0.8,
             max_tokens=4096
         ):
@@ -278,9 +286,10 @@ class LLMService:
         yield "## ✨ 第三步：脚本优化订正\n\n"
         yield "正在根据评估结果对脚本进行优化...\n\n"
 
+        revision_prompt = SCRIPT_REVISION_PROMPT + fw_prompt
         async for chunk in self._stream_llm_call(
             [
-                {"role": "system", "content": SCRIPT_REVISION_PROMPT},
+                {"role": "system", "content": revision_prompt},
                 {"role": "user", "content": f"请对以下直播脚本进行订正优化：\n\n原始脚本：\n{script_content}\n\n评估报告：\n{score_content}"}
             ],
             temperature=0.7,
@@ -312,14 +321,18 @@ class LLMService:
     async def revise_script_stream(
         self,
         script_content: str,
-        history: list[dict] = None
+        history: list[dict] = None,
+        memory_prompt: str = ""
     ) -> AsyncGenerator[str, None]:
         """订正直播脚本（流式）"""
         yield "## ✨ 脚本优化订正\n\n"
         yield "正在对您提供的直播脚本进行优化订正...\n\n"
 
+        fw_prompt = forbidden_word_service.build_forbidden_word_prompt()
+        system_prompt = SCRIPT_REVISION_PROMPT + fw_prompt + memory_prompt
+
         messages = [
-            {"role": "system", "content": SCRIPT_REVISION_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"请对以下直播脚本进行订正优化：\n\n{script_content}"}
         ]
 
@@ -350,24 +363,57 @@ class LLMService:
     async def general_chat_stream(
         self,
         user_message: str,
-        history: list[dict] = None
+        history: list[dict] = None,
+        memory_prompt: str = ""
     ) -> AsyncGenerator[str, None]:
         """普通对话（流式）"""
         messages = self._build_context_messages(user_message, history)
+        system_prompt = GENERAL_CHAT_PROMPT + memory_prompt
 
         async for chunk in self._stream_llm_call(
-            [{"role": "system", "content": GENERAL_CHAT_PROMPT}] + messages,
+            [{"role": "system", "content": system_prompt}] + messages,
             temperature=0.7,
             max_tokens=2048
         ):
             yield chunk
+
+    async def save_memory_stream(
+        self,
+        user_message: str,
+        history: list[dict] = None
+    ) -> AsyncGenerator[str, None]:
+        """提取并保存用户记忆（流式）"""
+        messages = self._build_context_messages(user_message, history)
+
+        # 用 LLM 提取记忆要点
+        extracted = await self._call_llm(
+            MEMORY_EXTRACT_PROMPT,
+            messages,
+            temperature=0.1,
+            max_tokens=500,
+            stream=False
+        )
+        extracted = extracted.strip()
+
+        if not extracted:
+            yield "没有检测到需要记忆的信息。请明确告诉我您希望我记住什么内容。"
+            return
+
+        yield "已为您记住以下内容：\n\n"
+        yield extracted
+        yield "\n\n---\n\n✅ 记忆已保存！下次对话时我会参考这些信息。您可以随时在「记忆」中查看和管理。"
+
+        # 返回提取的记忆内容，由调用方保存到数据库
+        yield f"\n\n__MEMORY_SAVE__:{extracted}"
 
     async def process_message(
         self,
         user_message: str,
         file_content: str = None,
         history: list[dict] = None,
-        force_intent: str = None
+        force_intent: str = None,
+        user_id: str = None,
+        user_memories: list = None
     ) -> AsyncGenerator[str, None]:
         """
         处理用户消息的主入口
@@ -375,14 +421,19 @@ class LLMService:
         - 根据意图调用相应功能
         - 流式返回结果
         """
+        memory_prompt = memory_service.build_memory_prompt(user_memories) if user_memories else ""
+
         if force_intent:
             intent = force_intent
         else:
             intent = await self.recognize_intent(user_message)
             logger.info(f"识别到用户意图: {intent}")
 
-        if intent == "generate_script":
-            async for chunk in self.generate_script_stream(user_message, file_content, history):
+        if intent == "save_memory":
+            async for chunk in self.save_memory_stream(user_message, history):
+                yield chunk
+        elif intent == "generate_script":
+            async for chunk in self.generate_script_stream(user_message, file_content, history, memory_prompt):
                 yield chunk
         elif intent == "score_script":
             script = file_content if file_content else user_message
@@ -390,14 +441,14 @@ class LLMService:
                 yield chunk
         elif intent == "revise_script":
             script = file_content if file_content else user_message
-            async for chunk in self.revise_script_stream(script, history):
+            async for chunk in self.revise_script_stream(script, history, memory_prompt):
                 yield chunk
         elif intent == "analyze_script":
             script = file_content if file_content else user_message
             async for chunk in self.analyze_script_stream(script, history):
                 yield chunk
         else:
-            async for chunk in self.general_chat_stream(user_message, history):
+            async for chunk in self.general_chat_stream(user_message, history, memory_prompt):
                 yield chunk
 
 

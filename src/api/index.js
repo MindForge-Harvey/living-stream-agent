@@ -7,11 +7,14 @@
  * @param {AbortSignal} signal - 中止信号
  * @returns {Promise<string>} 完整的响应文本
  */
-export async function callAgent(dialogId, message, file = null, onChunk = null, signal = null) {
+export async function callAgent(dialogId, message, file = null, onChunk = null, signal = null, userId = null) {
   const formData = new FormData()
   formData.append('message', message)
   if (dialogId) {
     formData.append('dialogId', dialogId)
+  }
+  if (userId) {
+    formData.append('userId', userId)
   }
   if (file) {
     formData.append('file', file)
@@ -88,4 +91,39 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
   }
 
   return finalContent
+}
+
+// 用户记忆相关 API
+export async function fetchMemories(userId) {
+  const res = await fetch(`/chat/api/memories?user_id=${encodeURIComponent(userId)}`)
+  if (!res.ok) throw new Error('获取记忆失败')
+  return res.json()
+}
+
+export async function createMemory(userId, content) {
+  const res = await fetch('/chat/api/memories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: userId, content }),
+  })
+  if (!res.ok) throw new Error('创建记忆失败')
+  return res.json()
+}
+
+export async function updateMemory(memoryId, content) {
+  const res = await fetch(`/chat/api/memories/${memoryId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error('更新记忆失败')
+  return res.json()
+}
+
+export async function deleteMemory(memoryId) {
+  const res = await fetch(`/chat/api/memories/${memoryId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error('删除记忆失败')
+  return res.json()
 }

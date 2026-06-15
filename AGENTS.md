@@ -37,10 +37,12 @@ living-stream-agent/
 │   │   │   ├── dialogs.py     # 对话管理
 │   │   │   ├── auth.py        # 认证
 │   │   │   ├── admin.py       # 管理后台
-│   │   │   └── forbidden_words.py  # 违禁词
+│   │   │   ├── forbidden_words.py  # 违禁词
+│   │   │   └── memories.py    # 用户记忆
 │   │   └── services/          # 业务服务
 │   │       ├── llm_service.py           # OpenAI 调用
-│   │       └── forbidden_word_service.py # 违禁词服务
+│   │       ├── forbidden_word_service.py # 违禁词服务
+│   │       └── memory_service.py        # 用户记忆服务
 │   ├── requirements.txt
 │   └── init_db.py             # 数据库初始化
 ├── src/                        # 前端代码
@@ -166,6 +168,12 @@ docker compose down
 - `role`: 角色（user/assistant）
 - `content`: 消息内容
 
+### UserMemory (用户记忆)
+- `id`: 主键
+- `user_id`: 用户 ID（索引）
+- `content`: 记忆内容
+- `created_at` / `updated_at`: 时间戳
+
 ### ForbiddenWord (违禁词)
 - `id`: 主键
 - `word`: 违禁词
@@ -214,6 +222,12 @@ docker compose down
 - `POST /chat/api/forbidden-words/import` - Excel 导入
 - `DELETE /chat/api/forbidden-words/batch/all` - 清空
 
+### 记忆接口
+- `GET /chat/api/memories?user_id=xxx` - 获取用户记忆
+- `POST /chat/api/memories` - 创建记忆
+- `PUT /chat/api/memories/{id}` - 更新记忆
+- `DELETE /chat/api/memories/{id}` - 删除记忆
+
 ### 认证接口
 - `POST /chat/api/auth/login` - 用户登录
 - `GET /chat/api/auth/me` - 获取当前用户
@@ -224,13 +238,15 @@ docker compose down
 1. **上下文关联**：自动加载对话历史（最近20条消息）
 2. **意图识别**：分析用户输入，判断意图
 3. **文件解析**：如有上传文件，解析内容（支持 txt/docx/pdf/xlsx）
-4. **流式输出**：每一步都流式返回结果
+4. **记忆加载**：自动加载该用户的长期记忆注入 LLM context
+5. **流式输出**：每一步都流式返回结果
 
 ### 支持的意图
 - `generate_script` - 生成直播脚本（三步流程：生成→打分→订正）
 - `score_script` - 脚本打分评价
 - `revise_script` - 脚本订正优化
 - `analyze_script` - 脚本结构分析
+- `save_memory` - 保存用户长期记忆（用户明确要求记住/保存信息时触发）
 - `general_chat` - 普通对话
 
 ### 直播脚本生成流程
