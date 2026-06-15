@@ -153,7 +153,8 @@ async def save_message(req: SendMessageRequest, db: Session = Depends(get_db)):
     )
     db.add(message)
 
-    dialog.request_count += 1
+    if req.role == "user":
+        dialog.request_count += 1
     dialog.updated_at = datetime.now(timezone.utc)
 
     if req.role == "user" and dialog.title == "新对话":

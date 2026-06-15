@@ -166,7 +166,7 @@ async def delete_all_forbidden_words(
 
 @router.get("/check")
 async def check_text_for_forbidden_words(
-    text: str, db: Session = Depends(get_db)
+    text: str, db: Session = Depends(get_db), _admin=Depends(get_current_admin)
 ):
     """检测文本中的违禁词并返回替换后的文本"""
     words = db.query(ForbiddenWord).all()

@@ -27,8 +27,15 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
   })
 
   if (!res.ok) {
-    const err = await res.text()
-    throw new Error(err || `请求失败: ${res.status}`)
+    const errText = await res.text()
+    let errMsg
+    try {
+      const errJson = JSON.parse(errText)
+      errMsg = errJson.detail || errJson.message || errText
+    } catch {
+      errMsg = errText || `请求失败: ${res.status}`
+    }
+    throw new Error(errMsg)
   }
 
   const contentType = res.headers.get('content-type') || ''

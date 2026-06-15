@@ -13,7 +13,8 @@ export default function Message({ role, content, fileName, time, tool, userInfo,
 
   const html = useMemo(() => {
     const result = marked.parse(safeContent, { gfm: true })
-    return typeof result === 'string' ? result : ''
+    const raw = typeof result === 'string' ? result : ''
+    return DOMPurify.sanitize(raw)
   }, [safeContent])
 
   const wordCount = useMemo(() => {

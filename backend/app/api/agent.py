@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from markitdown import MarkItDown
 
-from app.core.database import get_db
+from app.core.database import get_db, SessionLocal
 from app.services.llm_service import llm_service
 from app.services.forbidden_word_service import forbidden_word_service
 from app.services.memory_service import memory_service
@@ -147,19 +147,27 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                 if chunk.startswith("\n\n__MEMORY_SAVE__:"):
                     memory_to_save = chunk.split(":", 1)[1].strip()
                     continue
-                # 违禁词过滤
-                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, db)
+                # 违禁词过滤（使用独立 session，避免依赖注入的 session 被提前关闭）
+                gen_db = SessionLocal()
+                try:
+                    filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
+                finally:
+                    gen_db.close()
                 yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
 
-            # 异步保存记忆到数据库
+            # 保存记忆到数据库（独立 session）
             if memory_to_save and user_id:
+                gen_db = SessionLocal()
                 try:
                     memory = UserMemory(user_id=user_id, content=memory_to_save)
-                    db.add(memory)
-                    db.commit()
+                    gen_db.add(memory)
+                    gen_db.commit()
                     logger.info(f"已保存用户记忆: user_id={user_id}, content={memory_to_save[:50]}...")
                 except Exception as e:
+                    gen_db.rollback()
                     logger.error(f"保存记忆失败: {e}")
+                finally:
+                    gen_db.close()
 
         return StreamingResponse(
             generate_stream(),
