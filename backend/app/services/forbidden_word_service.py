@@ -30,8 +30,8 @@ class ForbiddenWordService:
 
         try:
             words = db.query(ForbiddenWord).all()
-            self._cache_all = [(w.word, w.replacement, w.level) for w in words]
-            self._cache_multi = [(w.word, w.replacement) for w in words if w.level == "multi"]
+            self._cache_all = [(w.word, w.replacement, w.level or "multi") for w in words]
+            self._cache_multi = [(w.word, w.replacement) for w in words if (w.level or "multi") == "multi"]
             self._cache_time = current_time
         finally:
             if close_db:

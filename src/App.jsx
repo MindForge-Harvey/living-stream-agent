@@ -216,7 +216,7 @@ export default function App({ userInfo }) {
       abortControllerRef.current = controller
 
       try {
-        await callAgent(currentDialog.id, text, file, (partialText) => {
+        const result = await callAgent(currentDialog.id, text, file, (partialText) => {
           setMessages(prev => {
             const updated = [...prev]
             const lastIdx = updated.length - 1
@@ -227,8 +227,7 @@ export default function App({ userInfo }) {
           })
         }, controller.signal, userId)
 
-        const finalMsg = messagesRef.current[messagesRef.current.length - 1]
-        if (finalMsg?.role === 'assistant') {
+        if (result) {
           try {
             await fetch('/chat/api/dialogs/message', {
               method: 'POST',
@@ -237,7 +236,7 @@ export default function App({ userInfo }) {
                 dialogId: currentDialog.id,
                 userId: userId,
                 role: 'assistant',
-                content: finalMsg.content,
+                content: result,
               }),
             })
           } catch (err) {

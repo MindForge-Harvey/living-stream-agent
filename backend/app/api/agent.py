@@ -134,40 +134,34 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
             ).order_by(UserMemory.created_at.desc()).all()
 
         async def generate_stream():
-            memory_to_save = None
-            async for chunk in llm_service.process_message(
-                user_message=message,
-                file_content=file_content,
-                history=history,
-                force_intent=intent,
-                user_id=user_id,
-                user_memories=user_memories
-            ):
-                # 检测记忆保存信号
-                if chunk.startswith("\n\n__MEMORY_SAVE__:"):
-                    memory_to_save = chunk.split(":", 1)[1].strip()
-                    continue
-                # 违禁词过滤（使用独立 session，避免依赖注入的 session 被提前关闭）
-                gen_db = SessionLocal()
-                try:
+            gen_db = SessionLocal()
+            try:
+                memory_to_save = None
+                async for chunk in llm_service.process_message(
+                    user_message=message,
+                    file_content=file_content,
+                    history=history,
+                    force_intent=intent,
+                    user_id=user_id,
+                    user_memories=user_memories
+                ):
+                    if chunk.startswith("\n\n__MEMORY_SAVE__:"):
+                        memory_to_save = chunk.split(":", 1)[1].strip()
+                        continue
                     filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
-                finally:
-                    gen_db.close()
-                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
 
-            # 保存记忆到数据库（独立 session）
-            if memory_to_save and user_id:
-                gen_db = SessionLocal()
-                try:
-                    memory = UserMemory(user_id=user_id, content=memory_to_save)
-                    gen_db.add(memory)
-                    gen_db.commit()
-                    logger.info(f"已保存用户记忆: user_id={user_id}, content={memory_to_save[:50]}...")
-                except Exception as e:
-                    gen_db.rollback()
-                    logger.error(f"保存记忆失败: {e}")
-                finally:
-                    gen_db.close()
+                if memory_to_save and user_id:
+                    try:
+                        memory = UserMemory(user_id=user_id, content=memory_to_save)
+                        gen_db.add(memory)
+                        gen_db.commit()
+                        logger.info(f"已保存用户记忆: user_id={user_id}, content={memory_to_save[:50]}...")
+                    except Exception as e:
+                        gen_db.rollback()
+                        logger.error(f"保存记忆失败: {e}")
+            finally:
+                gen_db.close()
 
         return StreamingResponse(
             generate_stream(),
@@ -201,12 +195,16 @@ async def generate_script(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="请提供产品信息或上传相关文件")
 
     async def generate_stream():
-        async for chunk in llm_service.generate_script_stream(
-            user_message=message,
-            file_content=file_content
-        ):
-            filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, db)
-            yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        gen_db = SessionLocal()
+        try:
+            async for chunk in llm_service.generate_script_stream(
+                user_message=message,
+                file_content=file_content
+            ):
+                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
+                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        finally:
+            gen_db.close()
 
     return StreamingResponse(
         generate_stream(),
@@ -229,9 +227,13 @@ async def score_script(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="请提供要评分的直播脚本")
 
     async def score_stream():
-        async for chunk in llm_service.score_script_stream(script):
-            filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, db)
-            yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        gen_db = SessionLocal()
+        try:
+            async for chunk in llm_service.score_script_stream(script):
+                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
+                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        finally:
+            gen_db.close()
 
     return StreamingResponse(
         score_stream(),
@@ -254,9 +256,13 @@ async def revise_script(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="请提供要订正的直播脚本")
 
     async def revise_stream():
-        async for chunk in llm_service.revise_script_stream(script):
-            filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, db)
-            yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        gen_db = SessionLocal()
+        try:
+            async for chunk in llm_service.revise_script_stream(script):
+                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
+                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+        finally:
+            gen_db.close()
 
     return StreamingResponse(
         revise_stream(),
