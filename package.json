@@ -1,0 +1,26 @@
+{
+  "name": "living-stream-agent",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload --port 3001",
+    "dev:all": "npx kill-port 5173 3001 2>/dev/null; npx concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.6",
+    "marked": "^18.0.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.15.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.5.2",
+    "concurrently": "^10.0.3",
+    "kill-port": "^2.0.1",
+    "vite": "^6.3.5"
+  }
+}
