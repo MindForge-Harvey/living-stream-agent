@@ -10,6 +10,7 @@
 import json
 import asyncio
 import logging
+import time
 from typing import AsyncGenerator, Optional
 from openai import AsyncOpenAI
 
@@ -52,9 +53,34 @@ SCRIPT_REVISION_PROMPT = """你是一位专业的直播话术编辑专家。请�
 
 直接输出优化后的完整话术。"""
 
-INTENT_RECOGNITION_PROMPT = """判断意图，只返回一个单词：generate_script/score_script/revise_script/analyze_script/save_memory/general_chat
+INTENT_RECOGNITION_PROMPT = """判断用户意图，返回一个或多个意图（用逗号分隔）。
 
-save_memory：用户明确要求记住、保存、记忆某些信息时使用。例如"帮我记住xxx"、"请记住我的偏好是xxx"、"把这个记下来"等。"""
+可选意图：
+- generate_script：生成直播脚本
+- score_script：对脚本打分评价
+- revise_script：订正优化脚本
+- analyze_script：分析脚本结构
+- save_memory：用户明确要求记住、保存某些信息（如"帮我记住xxx"、"请记住我的偏好"）
+- general_chat：普通对话、提问
+
+示例：
+- "帮我写个直播脚本" → generate_script
+- "帮我写个脚本并打分" → generate_script,score_script
+- "帮我写个脚本并订正" → generate_script,revise_script
+- "帮我记住我卖的是美妆产品" → save_memory
+- "直播话术怎么写" → general_chat
+- "打分" → score_script
+- "评分" → score_script
+- "评价" → score_script
+- "评估" → score_script
+- "订正" → revise_script
+- "优化" → revise_script
+- "修改" → revise_script
+- "改进" → revise_script
+- "分析" → analyze_script
+- "结构分析" → analyze_script
+
+只返回意图，不要其他内容。"""
 
 PRODUCT_INFO_EXTRACTION_PROMPT = """请从用户的输入中提取产品相关信息，包括：
 1. 产品名称
@@ -179,22 +205,23 @@ class LLMService:
             logger.error(f"LLM调用失败: {e}")
             yield f"\n\n[错误] 大模型调用失败: {str(e)}"
 
-    async def recognize_intent(self, user_message: str) -> str:
-        """识别用户意图"""
+    async def recognize_intent(self, user_message: str) -> list[str]:
+        """识别用户意图，返回意图列表"""
         try:
             response = await self._call_llm(
                 INTENT_RECOGNITION_PROMPT,
                 [{"role": "user", "content": user_message}],
                 temperature=0.1,
-                max_tokens=50,
+                max_tokens=100,
                 stream=False
             )
-            intent = response.strip().lower()
+            intents = [i.strip().lower() for i in response.strip().split(",")]
             valid_intents = ["generate_script", "score_script", "revise_script", "analyze_script", "save_memory", "general_chat"]
-            return intent if intent in valid_intents else "general_chat"
+            valid_result = [i for i in intents if i in valid_intents]
+            return valid_result if valid_result else ["general_chat"]
         except Exception as e:
             logger.error(f"意图识别失败: {e}")
-            return "general_chat"
+            return ["general_chat"]
 
     async def extract_product_info(self, user_message: str) -> dict:
         """提取产品信息"""
@@ -237,9 +264,14 @@ class LLMService:
         user_message: str,
         file_content: str = None,
         history: list[dict] = None,
-        memory_prompt: str = ""
+        memory_prompt: str = "",
+        full_process: bool = True
     ) -> AsyncGenerator[str, None]:
-        """生成直播脚本（流式）"""
+        """生成直播脚本（流式）
+        
+        Args:
+            full_process: 是否执行完整三步流程（生成→打分→订正）
+        """
         enhanced_message = user_message
         if file_content:
             enhanced_message = f"用户上传的文件内容：\n{file_content}\n\n用户需求：{user_message}"
@@ -254,66 +286,95 @@ class LLMService:
         yield "正在根据您的需求生成直播脚本，请稍候...\n\n"
 
         script_content = ""
-        async for chunk in self._stream_llm_call(
-            [{"role": "system", "content": system_prompt}] + messages,
-            temperature=0.8,
-            max_tokens=4096
-        ):
-            script_content += chunk
-            yield chunk
+        has_error = False
+        try:
+            async for chunk in self._stream_llm_call(
+                [{"role": "system", "content": system_prompt}] + messages,
+                temperature=0.8,
+                max_tokens=4096
+            ):
+                if "[错误]" in chunk:
+                    has_error = True
+                script_content += chunk
+                yield chunk
+        except Exception as e:
+            has_error = True
+            yield f"\n\n[错误] 脚本生成失败: {str(e)}"
+
+        # 如果生成失败或不需要完整流程，直接返回
+        if has_error or not full_process:
+            if not full_process:
+                yield "\n\n---\n\n## ✅ 完成\n\n直播脚本生成完毕！"
+                yield "\n\n💡 **下一步建议：**\n"
+                yield "- 想对脚本进行质量评估？回复「**打分**」即可获取详细评分\n"
+                yield "- 想优化脚本内容？回复「**订正**」即可获取优化版本\n"
+                yield "- 想分析脚本结构？回复「**分析**」即可获取结构分析"
+            return
 
         yield "\n\n---\n\n"
 
-        # 第二步：打分
+        # 第二步：打分（注入违禁词和记忆，传入原始需求）
         yield "## ⭐ 第二步：脚本质量评估\n\n"
         yield "正在对生成的脚本进行质量评估...\n\n"
 
+        score_system_prompt = SCRIPT_SCORING_PROMPT + fw_prompt + memory_prompt
         score_content = ""
-        async for chunk in self._stream_llm_call(
-            [
-                {"role": "system", "content": SCRIPT_SCORING_PROMPT},
-                {"role": "user", "content": f"请对以下直播脚本进行打分：\n\n{script_content}"}
-            ],
-            temperature=0.3,
-            max_tokens=2048
-        ):
-            score_content += chunk
-            yield chunk
+        try:
+            async for chunk in self._stream_llm_call(
+                [
+                    {"role": "system", "content": score_system_prompt},
+                    {"role": "user", "content": f"用户原始需求：{enhanced_message}\n\n请对以下直播脚本进行打分：\n\n{script_content}"}
+                ],
+                temperature=0.3,
+                max_tokens=2048
+            ):
+                score_content += chunk
+                yield chunk
+        except Exception as e:
+            yield f"\n\n[错误] 脚本打分失败: {str(e)}"
 
         yield "\n\n---\n\n"
 
-        # 第三步：订正
+        # 第三步：订正（传入原始需求）
         yield "## ✨ 第三步：脚本优化订正\n\n"
         yield "正在根据评估结果对脚本进行优化...\n\n"
 
         revision_prompt = SCRIPT_REVISION_PROMPT + fw_prompt + memory_prompt
-        async for chunk in self._stream_llm_call(
-            [
-                {"role": "system", "content": revision_prompt},
-                {"role": "user", "content": f"请对以下直播脚本进行订正优化：\n\n原始脚本：\n{script_content}\n\n评估报告：\n{score_content}"}
-            ],
-            temperature=0.7,
-            max_tokens=4096
-        ):
-            yield chunk
+        try:
+            async for chunk in self._stream_llm_call(
+                [
+                    {"role": "system", "content": revision_prompt},
+                    {"role": "user", "content": f"用户原始需求：{enhanced_message}\n\n请对以下直播脚本进行订正优化：\n\n原始脚本：\n{script_content}\n\n评估报告：\n{score_content}"}
+                ],
+                temperature=0.7,
+                max_tokens=4096
+            ):
+                yield chunk
+        except Exception as e:
+            yield f"\n\n[错误] 脚本订正失败: {str(e)}"
 
         yield "\n\n---\n\n## ✅ 完成\n\n直播脚本生成完毕！您可以根据需要继续优化或提出修改意见。"
 
     async def score_script_stream(
         self,
         script_content: str,
-        history: list[dict] = None
+        history: list[dict] = None,
+        memory_prompt: str = ""
     ) -> AsyncGenerator[str, None]:
         """对直播脚本进行打分（流式）"""
         yield "## ⭐ 脚本质量评估\n\n"
         yield "正在对您提供的直播脚本进行质量评估...\n\n"
 
-        messages = [
-            {"role": "system", "content": SCRIPT_SCORING_PROMPT},
-            {"role": "user", "content": f"请对以下直播脚本进行打分：\n\n{script_content}"}
-        ]
+        fw_prompt = forbidden_word_service.build_forbidden_word_prompt()
+        system_prompt = SCRIPT_SCORING_PROMPT + fw_prompt + memory_prompt
 
-        async for chunk in self._stream_llm_call(messages, temperature=0.3, max_tokens=2048):
+        # 使用对话历史构建上下文
+        user_message = f"请对以下直播脚本进行打分：\n\n{script_content}"
+        messages = self._build_context_messages(user_message, history)
+
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        async for chunk in self._stream_llm_call(full_messages, temperature=0.3, max_tokens=2048):
             yield chunk
 
         yield "\n\n---\n\n评估完成！如需订正优化，请告诉我。"
@@ -331,12 +392,13 @@ class LLMService:
         fw_prompt = forbidden_word_service.build_forbidden_word_prompt()
         system_prompt = SCRIPT_REVISION_PROMPT + fw_prompt + memory_prompt
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"请对以下直播脚本进行订正优化：\n\n{script_content}"}
-        ]
+        # 使用对话历史构建上下文
+        user_message = f"请对以下直播脚本进行订正优化：\n\n{script_content}"
+        messages = self._build_context_messages(user_message, history)
 
-        async for chunk in self._stream_llm_call(messages, temperature=0.7, max_tokens=4096):
+        full_messages = [{"role": "system", "content": system_prompt}] + messages
+
+        async for chunk in self._stream_llm_call(full_messages, temperature=0.7, max_tokens=4096):
             yield chunk
 
         yield "\n\n---\n\n订正完成！如需进一步调整，请告诉我。"
@@ -350,12 +412,13 @@ class LLMService:
         yield "## 🔍 脚本结构分析\n\n"
         yield "正在分析您的直播脚本结构...\n\n"
 
-        messages = [
-            {"role": "system", "content": SCRIPT_ANALYSIS_PROMPT},
-            {"role": "user", "content": f"请对以下直播脚本进行结构分析：\n\n{script_content}"}
-        ]
+        # 使用对话历史构建上下文
+        user_message = f"请对以下直播脚本进行结构分析：\n\n{script_content}"
+        messages = self._build_context_messages(user_message, history)
 
-        async for chunk in self._stream_llm_call(messages, temperature=0.3, max_tokens=2048):
+        full_messages = [{"role": "system", "content": SCRIPT_ANALYSIS_PROMPT}] + messages
+
+        async for chunk in self._stream_llm_call(full_messages, temperature=0.3, max_tokens=2048):
             yield chunk
 
         yield "\n\n---\n\n分析完成！如需根据分析结果优化脚本，请告诉我。"
@@ -403,8 +466,9 @@ class LLMService:
         yield extracted
         yield "\n\n---\n\n✅ 记忆已保存！下次对话时我会参考这些信息。您可以随时在「记忆」中查看和管理。"
 
-        # 返回提取的记忆内容，由调用方保存到数据库
-        yield f"\n\n__MEMORY_SAVE__:{extracted}"
+        # 使用JSON格式传递记忆内容，更安全
+        memory_data = json.dumps({"type": "memory_save", "content": extracted}, ensure_ascii=False)
+        yield f"\n\n__MEMORY_DATA__:{memory_data}:__END__"
 
     async def process_message(
         self,
@@ -413,43 +477,69 @@ class LLMService:
         history: list[dict] = None,
         force_intent: str = None,
         user_id: str = None,
-        user_memories: list = None
+        user_memories: list = None,
+        full_process: bool = True
     ) -> AsyncGenerator[str, None]:
         """
         处理用户消息的主入口
-        - 自动识别意图
+        - 自动识别意图（支持多意图）
         - 根据意图调用相应功能
         - 流式返回结果
+        
+        Args:
+            full_process: 是否执行完整三步流程
         """
         memory_prompt = memory_service.build_memory_prompt(user_memories) if user_memories else ""
 
         if force_intent:
-            intent = force_intent
+            intents = [force_intent]
         else:
-            intent = await self.recognize_intent(user_message)
-            logger.info(f"识别到用户意图: {intent}")
+            intents = await self.recognize_intent(user_message)
+            logger.info(f"识别到用户意图: {intents}")
 
-        if intent == "save_memory":
+        # 处理save_memory意图（独立处理，可能与其他意图并存）
+        if "save_memory" in intents:
             async for chunk in self.save_memory_stream(user_message, history):
                 yield chunk
-        elif intent == "generate_script":
-            async for chunk in self.generate_script_stream(user_message, file_content, history, memory_prompt):
+            # 如果只有save_memory意图，直接返回
+            if len(intents) == 1:
+                return
+
+        # 处理生成脚本意图
+        if "generate_script" in intents:
+            # 根据意图动态决定是否执行完整流程
+            # 只有当用户明确要求打分或订正时，才执行完整流程
+            should_full_process = "score_script" in intents or "revise_script" in intents
+            async for chunk in self.generate_script_stream(
+                user_message, file_content, history, memory_prompt, should_full_process
+            ):
                 yield chunk
-        elif intent == "score_script":
+            return
+
+        # 处理打分意图
+        if "score_script" in intents:
             script = file_content if file_content else user_message
-            async for chunk in self.score_script_stream(script, history):
+            async for chunk in self.score_script_stream(script, history, memory_prompt):
                 yield chunk
-        elif intent == "revise_script":
+            return
+
+        # 处理订正意图
+        if "revise_script" in intents:
             script = file_content if file_content else user_message
             async for chunk in self.revise_script_stream(script, history, memory_prompt):
                 yield chunk
-        elif intent == "analyze_script":
+            return
+
+        # 处理分析意图
+        if "analyze_script" in intents:
             script = file_content if file_content else user_message
             async for chunk in self.analyze_script_stream(script, history):
                 yield chunk
-        else:
-            async for chunk in self.general_chat_stream(user_message, history, memory_prompt):
-                yield chunk
+            return
+
+        # 普通对话
+        async for chunk in self.general_chat_stream(user_message, history, memory_prompt):
+            yield chunk
 
 
 # 全局实例

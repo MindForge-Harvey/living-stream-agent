@@ -37,7 +37,8 @@ async def parse_upload_file(file: UploadFile) -> str:
         filename = file.filename.lower()
 
         if filename.endswith('.txt'):
-            return content.decode('utf-8')
+            text = content.decode('utf-8')
+            return _truncate_content(text)
 
         suffix = os.path.splitext(filename)[1]
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -45,14 +46,81 @@ async def parse_upload_file(file: UploadFile) -> str:
             tmp_path = tmp.name
 
         try:
-            result = markitdown_converter.convert(tmp_path)
-            return result.text_content
+            # Excel 文件特殊处理：使用 pandas 读取并处理合并单元格
+            if filename.endswith(('.xlsx', '.xls')):
+                result = _parse_excel_with_merged_cells(tmp_path)
+            else:
+                result = markitdown_converter.convert(tmp_path)
+                result = result.text_content
+            
+            return _truncate_content(result)
         finally:
             os.unlink(tmp_path)
 
     except Exception as e:
         logger.error(f"文件解析失败: {e}")
         return f"[文件解析失败: {str(e)}]"
+
+
+# 文件内容最大字符数（约100k）
+MAX_CONTENT_LENGTH = 100000
+
+
+def _truncate_content(text: str) -> str:
+    """截断文件内容，超过最大长度时保留头尾并提示"""
+    if not text or len(text) <= MAX_CONTENT_LENGTH:
+        return text
+    
+    # 保留前面大部分内容 + 尾部提示
+    truncated = text[:MAX_CONTENT_LENGTH]
+    truncated += f"\n\n[文件内容过长，已截断。原始长度：{len(text)} 字符，已保留前 {MAX_CONTENT_LENGTH} 字符]"
+    return truncated
+
+
+def _parse_excel_with_merged_cells(file_path: str) -> str:
+    """解析 Excel 文件，处理合并单元格（只对第一列进行 forward fill）"""
+    import pandas as pd
+    
+    try:
+        # 读取所有工作表
+        dfs = pd.read_excel(file_path, sheet_name=None, header=0)
+        
+        all_sheets = []
+        for sheet_name, df in dfs.items():
+            # 只对第一列进行 forward fill（处理合并单元格）
+            df_filled = df.copy()
+            first_col = df_filled.columns[0]
+            df_filled[first_col] = df_filled[first_col].ffill()
+            
+            # 转换为 Markdown 表格
+            lines = [f"## {sheet_name}", ""]
+            
+            # 表头
+            headers = df_filled.columns.tolist()
+            lines.append("| " + " | ".join(str(h) for h in headers) + " |")
+            lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+            
+            # 数据行
+            for _, row in df_filled.iterrows():
+                row_data = []
+                for val in row:
+                    if pd.isna(val):
+                        row_data.append("")
+                    else:
+                        # 清理换行符，避免破坏表格格式
+                        cell = str(val).replace('\n', ' ').replace('\r', '')
+                        row_data.append(cell)
+                lines.append("| " + " | ".join(row_data) + " |")
+            
+            all_sheets.append("\n".join(lines))
+        
+        return "\n\n".join(all_sheets)
+        
+    except Exception as e:
+        logger.error(f"Excel 解析失败: {e}")
+        # 降级到 markitdown
+        result = markitdown_converter.convert(file_path)
+        return result.text_content
 
 
 @router.get("/status")
@@ -145,9 +213,22 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                     user_id=user_id,
                     user_memories=user_memories
                 ):
-                    if chunk.startswith("\n\n__MEMORY_SAVE__:"):
-                        memory_to_save = chunk.split(":", 1)[1].strip()
-                        continue
+                    # 解析记忆保存标记（使用JSON格式）
+                    if "__MEMORY_DATA__:" in chunk and ":__END__" in chunk:
+                        try:
+                            start = chunk.index("__MEMORY_DATA__:") + len("__MEMORY_DATA__:")
+                            end = chunk.index(":__END__")
+                            memory_json = chunk[start:end]
+                            memory_data = json.loads(memory_json)
+                            if memory_data.get("type") == "memory_save":
+                                memory_to_save = memory_data.get("content")
+                                # 移除标记，不输出给用户
+                                chunk = chunk[:chunk.index("__MEMORY_DATA__:")] + chunk[chunk.index(":__END__") + len(":__END__"):]
+                                if not chunk.strip():
+                                    continue
+                        except (json.JSONDecodeError, ValueError):
+                            pass  # 解析失败则正常输出
+                    
                     filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
                     yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
 

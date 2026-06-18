@@ -3,7 +3,7 @@ import Message from '../Message/Message'
 import TypingIndicator from '../TypingIndicator/TypingIndicator'
 import styles from './ChatArea.module.css'
 
-export default function ChatArea({ messages, tool, isTyping, showSuggestions, onSuggestionClick, userInfo, onRetry }) {
+export default function ChatArea({ messages, tool, isTyping, showSuggestions, onSuggestionClick, userInfo, onRetry, forbiddenWords }) {
   const areaRef = useRef(null)
 
   useEffect(() => {
@@ -29,6 +29,7 @@ export default function ChatArea({ messages, tool, isTyping, showSuggestions, on
             userInfo={userInfo}
             isLast={i === messages.length - 1 && msg.role === 'assistant' && !isTyping}
             onRetry={onRetry}
+            forbiddenWords={forbiddenWords}
           />
         ))}
         {isTyping && <TypingIndicator tool={tool} />}

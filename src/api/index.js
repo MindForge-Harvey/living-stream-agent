@@ -134,3 +134,10 @@ export async function deleteMemory(memoryId) {
   if (!res.ok) throw new Error('删除记忆失败')
   return res.json()
 }
+
+// 违禁词相关 API
+export async function fetchForbiddenWords() {
+  const res = await fetch('/chat/api/forbidden-words')
+  if (!res.ok) throw new Error('获取违禁词失败')
+  return res.json()
+}

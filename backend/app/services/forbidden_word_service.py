@@ -14,6 +14,7 @@ class ForbiddenWordService:
     def __init__(self):
         self._cache_all = []
         self._cache_multi = []
+        self._cache_single = []
         self._cache_time = 0
         self._cache_ttl = 60
 
@@ -32,6 +33,7 @@ class ForbiddenWordService:
             words = db.query(ForbiddenWord).all()
             self._cache_all = [(w.word, w.replacement, w.level or "multi") for w in words]
             self._cache_multi = [(w.word, w.replacement) for w in words if (w.level or "multi") == "multi"]
+            self._cache_single = [w.word for w in words if (w.level or "multi") == "single"]
             self._cache_time = current_time
         finally:
             if close_db:
@@ -47,12 +49,26 @@ class ForbiddenWordService:
         self._load_words(db)
         return self._cache_multi
 
+    def get_single_forbidden_words(self, db: Session = None) -> list:
+        """获取单字违禁词，用于检测告警"""
+        self._load_words(db)
+        return self._cache_single
+
     def replace_forbidden_words(self, text: str, db: Session = None) -> str:
-        """只替换多字违禁词（单字交给 LLM 处理）"""
-        words = self.get_multi_forbidden_words(db)
+        """替换多字违禁词，并检测单字违禁词"""
+        words_multi = self.get_multi_forbidden_words(db)
+        words_single = self.get_single_forbidden_words(db)
         result = text
-        for word, replacement in words:
+        
+        # 替换多字违禁词
+        for word, replacement in words_multi:
             result = result.replace(word, replacement)
+        
+        # 检测单字违禁词（记录日志告警，不替换）
+        for word in words_single:
+            if word in result:
+                logger.warning(f"检测到单字违禁词「{word}」，请检查LLM输出是否合规")
+        
         return result
 
     def build_forbidden_word_prompt(self, db: Session = None) -> str:

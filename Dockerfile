@@ -31,7 +31,14 @@ COPY --from=frontend-build /app/dist/ ./dist/
 RUN echo '#!/bin/bash\n\
 cd /app/backend\n\
 echo "Waiting for MySQL to be ready..."\n\
-sleep 10\n\
+for i in $(seq 1 30); do\n\
+  if python -c "import pymysql; pymysql.connect(host='\''mysql'\'', port=3306, user='\''root'\'', password='\''${MYSQL_PASSWORD:-living_stream_2024}'\'')" 2>/dev/null; then\n\
+    echo "MySQL is ready!"\n\
+    break\n\
+  fi\n\
+  echo "Attempt $i: MySQL not ready, waiting..."\n\
+  sleep 2\n\
+done\n\
 python -c "from app.core.database import engine, Base; from app.models import models; Base.metadata.create_all(bind=engine); print(\"Database tables created.\")"\n\
 python init_db.py\n\
 exec uvicorn app.main:app --host 0.0.0.0 --port 3001\n\

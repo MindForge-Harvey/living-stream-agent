@@ -3,7 +3,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import styles from './Message.module.css'
 
-export default function Message({ role, content, fileName, time, tool, userInfo, isLast, onRetry }) {
+export default function Message({ role, content, fileName, time, tool, userInfo, isLast, onRetry, forbiddenWords }) {
   const isUser = role === 'user'
   const userId = userInfo?.platformUserId
   const staffName = userInfo?.staffName
@@ -11,11 +11,31 @@ export default function Message({ role, content, fileName, time, tool, userInfo,
   const safeContent = typeof content === 'string' ? content : String(content || '')
   const [copied, setCopied] = useState(false)
 
+  const highlightedContent = useMemo(() => {
+    if (!forbiddenWords || forbiddenWords.length === 0 || !safeContent) {
+      return safeContent
+    }
+    
+    let result = safeContent
+    for (const wordObj of forbiddenWords) {
+      const word = wordObj.word || wordObj
+      if (!word) continue
+      
+      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const regex = new RegExp(escapedWord, 'g')
+      result = result.replace(regex, `<mark class="${styles.forbiddenWord}">${word}</mark>`)
+    }
+    return result
+  }, [safeContent, forbiddenWords])
+
   const html = useMemo(() => {
-    const result = marked.parse(safeContent, { gfm: true })
+    const contentToProcess = highlightedContent.includes('<mark') 
+      ? highlightedContent 
+      : safeContent
+    const result = marked.parse(contentToProcess, { gfm: true })
     const raw = typeof result === 'string' ? result : ''
-    return DOMPurify.sanitize(raw)
-  }, [safeContent])
+    return DOMPurify.sanitize(raw, { ADD_TAGS: ['mark'], ADD_ATTR: ['class'] })
+  }, [safeContent, highlightedContent])
 
   const wordCount = useMemo(() => {
     if (!safeContent) return 0
@@ -79,7 +99,7 @@ export default function Message({ role, content, fileName, time, tool, userInfo,
               )}
             </div>
           ) : (
-            <div className={styles.markdown} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
+            <div className={styles.markdown} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, { ADD_TAGS: ['mark'], ADD_ATTR: ['class'] }) }} />
           )}
         </div>
         <div className={styles.meta}>

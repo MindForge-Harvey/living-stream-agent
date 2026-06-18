@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { callAgent } from './api/index'
+import { callAgent, fetchForbiddenWords } from './api/index'
 import Sidebar from './components/Sidebar/Sidebar'
 import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
@@ -36,6 +36,7 @@ export default function App({ userInfo }) {
   const [connectionStatus, setConnectionStatus] = useState({ connected: false })
   const [loadingDialogs, setLoadingDialogs] = useState(false)
   const [memoryDrawerOpen, setMemoryDrawerOpen] = useState(false)
+  const [forbiddenWords, setForbiddenWords] = useState([])
   const abortControllerRef = useRef(null)
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
@@ -75,6 +76,18 @@ export default function App({ userInfo }) {
     checkHealth()
     const interval = setInterval(checkHealth, 30000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const loadForbiddenWords = async () => {
+      try {
+        const words = await fetchForbiddenWords()
+        setForbiddenWords(words || [])
+      } catch (err) {
+        console.error('加载违禁词失败:', err)
+      }
+    }
+    loadForbiddenWords()
   }, [])
 
   const loadDialogMessages = async (dialogId) => {
@@ -334,6 +347,7 @@ export default function App({ userInfo }) {
             onSuggestionClick={(text) => sendMessage(text)}
             userInfo={userInfo}
             onRetry={retryLastMessage}
+            forbiddenWords={forbiddenWords}
           />
         ) : (
           <div className={styles.welcome}>
