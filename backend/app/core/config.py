@@ -10,20 +10,26 @@ def get_secret_key() -> str:
     if not key or key == "your-secret-key-change-in-production":
         key = secrets.token_hex(32)
         env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env")
-        if os.path.exists(env_path):
-            with open(env_path, "r") as f:
-                content = f.read()
-            if "SECRET_KEY=your-secret-key-change-in-production" in content:
-                content = content.replace(
-                    "SECRET_KEY=your-secret-key-change-in-production",
-                    f"SECRET_KEY={key}"
-                )
+        try:
+            if os.path.exists(env_path):
+                with open(env_path, "r") as f:
+                    content = f.read()
+                # 替换现有的 SECRET_KEY 行
+                if "SECRET_KEY=" in content:
+                    import re
+                    content = re.sub(r'SECRET_KEY=.*', f'SECRET_KEY={key}', content)
+                else:
+                    # 在文件末尾添加
+                    content = content.rstrip('\n') + f'\nSECRET_KEY={key}\n'
                 with open(env_path, "w") as f:
                     f.write(content)
-            elif "SECRET_KEY=\n" in content:
-                content = content.replace("SECRET_KEY=\n", f"SECRET_KEY={key}\n")
+            else:
+                # 创建 .env 文件
                 with open(env_path, "w") as f:
-                    f.write(content)
+                    f.write(f'SECRET_KEY={key}\n')
+        except Exception:
+            # 如果写入失败，至少在当前进程有效
+            pass
     return key
 
 

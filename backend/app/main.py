@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import settings
 from app.core.database import engine, Base
-from app.api import auth, agent, admin, dialogs, forbidden_words, memories
+from app.api import auth, agent, admin, dialogs, forbidden_words, memories, super_admin, templates, export, scoring_configs
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,6 +49,10 @@ app.include_router(dialogs.router, prefix="/chat/api")
 app.include_router(agent.router, prefix="/chat/api")
 app.include_router(forbidden_words.router, prefix="/chat")
 app.include_router(memories.router, prefix="/chat/api")
+app.include_router(super_admin.router, prefix="/api")
+app.include_router(templates.router, prefix="/chat/api")
+app.include_router(export.router, prefix="/chat/api")
+app.include_router(scoring_configs.router, prefix="/chat/api")
 
 
 @app.get("/chat/api/health")
@@ -80,7 +84,8 @@ import os
 # dist 目录在项目根目录下
 dist_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "dist")
 if os.path.exists(dist_path):
-    app.mount("/chat/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+    app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
+    app.mount("/chat/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets_chat")
 
     @app.get("/chat/{full_path:path}")
     async def serve_spa(full_path: str):
@@ -90,4 +95,19 @@ if os.path.exists(dist_path):
         file_path = os.path.join(dist_path, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
+        return FileResponse(os.path.join(dist_path, "index.html"))
+
+    @app.get("/superlogin")
+    async def serve_superlogin():
+        """超级管理员登录页面"""
+        return FileResponse(os.path.join(dist_path, "index.html"))
+
+    @app.get("/superconfig")
+    async def serve_superconfig():
+        """超级管理员配置页面"""
+        return FileResponse(os.path.join(dist_path, "index.html"))
+
+    @app.get("/")
+    async def serve_root():
+        """根路径"""
         return FileResponse(os.path.join(dist_path, "index.html"))

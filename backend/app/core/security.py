@@ -14,19 +14,20 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """验证密码，支持 bcrypt 和 SHA256 格式"""
+    """验证密码，支持 bcrypt 和旧 SHA256 格式（向后兼容）"""
     try:
         if hashed_password.startswith('$2') and pwd_context.identify(hashed_password):
             return pwd_context.verify(plain_password, hashed_password)
     except Exception:
         pass
+    # 向后兼容旧的 SHA256 格式
     sha256_hash = hashlib.sha256(plain_password.encode()).hexdigest()
     return sha256_hash == hashed_password
 
 
 def get_password_hash(password: str) -> str:
-    """生成密码哈希（使用 SHA256）"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """生成密码哈希（使用 bcrypt）"""
+    return pwd_context.hash(password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

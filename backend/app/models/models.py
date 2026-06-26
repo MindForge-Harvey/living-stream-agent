@@ -1,14 +1,16 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Boolean, JSON
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
 
+# 上海时区 (UTC+8)
+SHANGHAI_TZ = timezone(timedelta(hours=8))
 
 def utc_now():
-    """获取当前 UTC 时间"""
-    return datetime.now(timezone.utc)
+    """获取当前时间（上海时区 UTC+8）"""
+    return datetime.now(SHANGHAI_TZ)
 
 
 class Admin(Base):
@@ -18,6 +20,7 @@ class Admin(Base):
     username = Column(String(50), unique=True, index=True)
     hashed_password = Column(String(255))
     is_active = Column(Boolean, default=True)
+    is_superadmin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utc_now)
 
 
@@ -57,6 +60,7 @@ class DialogMessage(Base):
     request_id = Column(String(50), index=True)
     role = Column(String(20))
     content = Column(Text)
+    metadata_json = Column(Text, nullable=True)  # 存储文件内容等元数据
     created_at = Column(DateTime, default=utc_now)
 
     dialog = relationship("Dialog")
@@ -95,5 +99,48 @@ class PlatformUser(Base):
     staff_code = Column(String(100), default="")
     staff_name = Column(String(100), default="")
     staff_pos_type = Column(String(100), default="")
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class ScriptVersion(Base):
+    """脚本版本历史"""
+    __tablename__ = "script_versions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dialog_id = Column(String(50), ForeignKey("dialogs.id"), index=True)
+    request_id = Column(String(50), index=True)
+    version_type = Column(String(20))  # generated/scored/revised
+    content = Column(Text)
+    score_data = Column(Text, nullable=True)  # 打分数据（JSON格式）
+    created_at = Column(DateTime, default=utc_now)
+
+    dialog = relationship("Dialog")
+
+
+class ScriptTemplate(Base):
+    """脚本模板"""
+    __tablename__ = "script_templates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(200), nullable=False)
+    category = Column(String(100), default="custom")  # preset/custom
+    product_type = Column(String(100), nullable=True)  # 产品类型
+    template_content = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class ScoringConfig(Base):
+    """打分配置"""
+    __tablename__ = "scoring_configs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)  # 配置名称
+    dimensions = Column(JSON, nullable=False)  # 评分维度配置
+    prompt_template = Column(Text, nullable=False)  # 打分提示模板
+    is_default = Column(Boolean, default=False)  # 是否默认配置
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

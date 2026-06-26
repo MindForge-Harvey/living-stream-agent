@@ -64,12 +64,23 @@ class ForbiddenWordService:
         for word, replacement in words_multi:
             result = result.replace(word, replacement)
         
-        # 检测单字违禁词（记录日志告警，不替换）
+        # 检测并替换单字违禁词（使用替换词或默认用*替代）
         for word in words_single:
             if word in result:
-                logger.warning(f"检测到单字违禁词「{word}」，请检查LLM输出是否合规")
+                logger.warning(f"检测到单字违禁词「{word}」，已自动替换")
+                # 查找该单字违禁词的替换词
+                replacement = self._get_single_word_replacement(word, db)
+                result = result.replace(word, replacement)
         
         return result
+
+    def _get_single_word_replacement(self, word: str, db: Session = None) -> str:
+        """获取单字违禁词的替换词"""
+        self._load_words(db)
+        for w, replacement, level in self._cache_all:
+            if w == word and level == "single":
+                return replacement if replacement and replacement != "***" else "*"
+        return "*"
 
     def build_forbidden_word_prompt(self, db: Session = None) -> str:
         """构建违禁词提示段落，注入到 LLM system prompt"""

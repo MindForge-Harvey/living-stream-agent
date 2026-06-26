@@ -1,7 +1,7 @@
 import uuid
 import csv
 import io
-from datetime import datetime, timezone
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,14 +12,11 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.core.time_utils import format_shanghai_iso, format_shanghai_display, shanghai_now
-from app.models.models import Dialog, DialogMessage, PlatformUser
+from app.models.models import Dialog, DialogMessage, ScriptVersion, PlatformUser, utc_now
 from app.api.admin import get_current_admin
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/dialogs", tags=["对话"])
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
 
 
 def generate_dialog_id():
@@ -106,9 +103,9 @@ async def create_dialog(req: CreateDialogRequest, db: Session = Depends(get_db))
 @router.get("")
 async def list_dialogs(userId: str = None, page: int = 1, pageSize: int = 50, db: Session = Depends(get_db)):
     """获取对话列表（支持分页）"""
-    query = db.query(Dialog)
-    if userId:
-        query = query.filter(Dialog.user_id == userId)
+    if not userId:
+        return {"items": [], "total": 0, "page": page, "pageSize": pageSize, "totalPages": 0}
+    query = db.query(Dialog).filter(Dialog.user_id == userId)
 
     total = query.count()
     dialogs = query.order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
@@ -155,7 +152,7 @@ async def save_message(req: SendMessageRequest, db: Session = Depends(get_db)):
 
     if req.role == "user":
         dialog.request_count += 1
-    dialog.updated_at = datetime.now(timezone.utc)
+    dialog.updated_at = utc_now()
 
     if req.role == "user" and dialog.title == "新对话":
         dialog.title = req.content[:20] + ("..." if len(req.content) > 20 else "")
@@ -363,11 +360,13 @@ async def get_overview_stats(db: Session = Depends(get_db), _admin=Depends(get_c
 # ==================== 对话详情接口 ====================
 
 @router.get("/{dialog_id}")
-async def get_dialog(dialog_id: str, db: Session = Depends(get_db)):
+async def get_dialog(dialog_id: str, userId: str = Query(None, description="用户ID"), db: Session = Depends(get_db)):
     """获取对话详情"""
     dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
+    if userId and dialog.user_id != userId:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
     return {
         "id": dialog.id,
         "userId": dialog.user_id,
@@ -390,18 +389,30 @@ async def delete_dialog(dialog_id: str, userId: str = Query(..., description="�
     if dialog.user_id != userId:
         raise HTTPException(status_code=403, detail="无权删除此对话")
 
-    db.query(DialogMessage).filter(DialogMessage.dialog_id == dialog_id).delete()
-    db.delete(dialog)
-    db.commit()
-    return {"message": "删除成功"}
+    try:
+        # 级联删除关联数据（顺序很重要：先删除子表数据）
+        # 1. 删除对话消息
+        db.query(DialogMessage).filter(DialogMessage.dialog_id == dialog_id).delete(synchronize_session=False)
+        # 2. 删除脚本版本
+        db.query(ScriptVersion).filter(ScriptVersion.dialog_id == dialog_id).delete(synchronize_session=False)
+        # 3. 删除对话
+        db.delete(dialog)
+        db.commit()
+        return {"message": "删除成功"}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"删除对话失败: {e}")
+        raise HTTPException(status_code=500, detail=f"删除对话失败: {str(e)}")
 
 
 @router.get("/{dialog_id}/messages")
-async def get_dialog_messages(dialog_id: str, db: Session = Depends(get_db)):
+async def get_dialog_messages(dialog_id: str, userId: str = Query(None, description="用户ID"), db: Session = Depends(get_db)):
     """获取对话消息"""
     dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
+    if userId and dialog.user_id != userId:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
 
     messages = db.query(DialogMessage).filter(
         DialogMessage.dialog_id == dialog_id

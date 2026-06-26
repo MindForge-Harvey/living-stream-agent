@@ -7,6 +7,7 @@ import json
 import logging
 import tempfile
 import os
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File, Form
@@ -18,7 +19,7 @@ from app.core.database import get_db, SessionLocal
 from app.services.llm_service import llm_service
 from app.services.forbidden_word_service import forbidden_word_service
 from app.services.memory_service import memory_service
-from app.models.models import DialogMessage, UserMemory
+from app.models.models import DialogMessage, UserMemory, ScriptVersion
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,10 @@ router = APIRouter(prefix="/agent", tags=["直播话术智能体"])
 markitdown_converter = MarkItDown()
 
 
-async def parse_upload_file(file: UploadFile) -> str:
-    """解析上传的文件内容（使用 MarkItDown）"""
+async def parse_upload_file(file: UploadFile) -> tuple[str, str]:
+    """解析上传的文件内容（使用 MarkItDown），返回 (file_content, filename)"""
     if not file:
-        return None
+        return None, None
 
     try:
         content = await file.read()
@@ -38,7 +39,7 @@ async def parse_upload_file(file: UploadFile) -> str:
 
         if filename.endswith('.txt'):
             text = content.decode('utf-8')
-            return _truncate_content(text)
+            return _truncate_content(text), file.filename
 
         suffix = os.path.splitext(filename)[1]
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -53,13 +54,13 @@ async def parse_upload_file(file: UploadFile) -> str:
                 result = markitdown_converter.convert(tmp_path)
                 result = result.text_content
             
-            return _truncate_content(result)
+            return _truncate_content(result), file.filename
         finally:
             os.unlink(tmp_path)
 
     except Exception as e:
         logger.error(f"文件解析失败: {e}")
-        return f"[文件解析失败: {str(e)}]"
+        return f"[文件解析失败: {str(e)}]", file.filename if file else None
 
 
 # 文件内容最大字符数（约100k）
@@ -123,6 +124,27 @@ def _parse_excel_with_merged_cells(file_path: str) -> str:
         return result.text_content
 
 
+def _build_history_with_metadata(msgs: list) -> list:
+    """构建包含文件元数据的历史消息"""
+    history = []
+    for msg in msgs:
+        entry = {
+            "role": msg.role,
+            "content": msg.content
+        }
+        # 如果有文件元数据，添加到历史中
+        if msg.metadata_json:
+            try:
+                metadata = json.loads(msg.metadata_json)
+                if metadata.get("file_content"):
+                    entry["file_content"] = metadata["file_content"]
+                    entry["file_name"] = metadata.get("file_name", "")
+            except json.JSONDecodeError:
+                pass
+        history.append(entry)
+    return history
+
+
 @router.get("/status")
 async def get_status():
     """获取智能体状态"""
@@ -178,8 +200,9 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="消息内容不能为空")
 
         file_content = None
+        file_name = None
         if file and hasattr(file, 'filename') and file.filename:
-            file_content = await parse_upload_file(file)
+            file_content, file_name = await parse_upload_file(file)
             logger.info(f"已解析文件: {file.filename}")
 
         history = []
@@ -188,11 +211,7 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                 DialogMessage.dialog_id == dialog_id
             ).order_by(DialogMessage.created_at).all()
 
-            for msg in msgs[-20:]:
-                history.append({
-                    "role": msg.role,
-                    "content": msg.content
-                })
+            history = _build_history_with_metadata(msgs[-20:])
 
         # 加载用户记忆
         user_memories = []
@@ -201,10 +220,26 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                 UserMemory.user_id == user_id
             ).order_by(UserMemory.created_at.desc()).all()
 
+        # 生成请求ID
+        request_id = str(uuid.uuid4())[:8]
+        
+        # 构建文件元数据
+        file_metadata = None
+        if file_content:
+            file_metadata = json.dumps({
+                "file_content": file_content,
+                "file_name": file_name
+            }, ensure_ascii=False)
+
         async def generate_stream():
             gen_db = SessionLocal()
             try:
                 memory_to_save = None
+                detected_intent = None
+                accumulated_content = ""
+                save_interval = 500  # 每500个字符保存一次中间结果
+                last_saved_length = 0
+                
                 async for chunk in llm_service.process_message(
                     user_message=message,
                     file_content=file_content,
@@ -213,7 +248,7 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                     user_id=user_id,
                     user_memories=user_memories
                 ):
-                    # 解析记忆保存标记（使用JSON格式）
+                     # 解析记忆保存标记（使用JSON格式）
                     if "__MEMORY_DATA__:" in chunk and ":__END__" in chunk:
                         try:
                             start = chunk.index("__MEMORY_DATA__:") + len("__MEMORY_DATA__:")
@@ -229,8 +264,40 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                         except (json.JSONDecodeError, ValueError):
                             pass  # 解析失败则正常输出
                     
+                    # 解析意图标记
+                    if "__INTENT_DATA__:" in chunk and ":__END__" in chunk:
+                        try:
+                            start = chunk.index("__INTENT_DATA__:") + len("__INTENT_DATA__:")
+                            end = chunk.index(":__END__")
+                            intent_json = chunk[start:end]
+                            intent_data = json.loads(intent_json)
+                            intents = intent_data.get("intents", [])
+                            if intents:
+                                detected_intent = intents[0]  # 取第一个意图
+                                logger.info(f"检测到意图: {detected_intent}")
+                            # 移除标记，不输出给用户
+                            chunk = chunk[:chunk.index("__INTENT_DATA__:")] + chunk[chunk.index(":__END__") + len(":__END__"):]
+                            if not chunk.strip():
+                                continue
+                        except (json.JSONDecodeError, ValueError):
+                            pass  # 解析失败则正常输出
+                    
                     filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
+                    accumulated_content += filtered_chunk
+                    
+                    # 定期保存中间结果（对话历史完整性）
+                    if len(accumulated_content) - last_saved_length >= save_interval:
+                        _save_intermediate_result(gen_db, dialog_id, request_id, "assistant", accumulated_content, file_metadata)
+                        last_saved_length = len(accumulated_content)
+                    
                     yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+
+                # 保存最终结果
+                if accumulated_content:
+                    _save_message(gen_db, dialog_id, request_id, "assistant", accumulated_content, file_metadata)
+                    
+                    # 保存脚本版本（使用检测到的意图）
+                    _save_script_version(gen_db, dialog_id, request_id, accumulated_content, detected_intent)
 
                 if memory_to_save and user_id:
                     try:
@@ -261,6 +328,123 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"处理请求失败: {str(e)}")
 
 
+def _save_message(db: Session, dialog_id: str, request_id: str, role: str, content: str, metadata: str = None):
+    """保存消息到数据库（如果已存在则更新）"""
+    if not dialog_id:
+        return
+    
+    try:
+        # 检查是否已有该 request_id 的消息（由 _save_intermediate_result 创建）
+        existing = db.query(DialogMessage).filter(
+            DialogMessage.dialog_id == dialog_id,
+            DialogMessage.request_id == request_id,
+            DialogMessage.role == role
+        ).first()
+        
+        if existing:
+            existing.content = content
+            if metadata:
+                existing.metadata_json = metadata
+        else:
+            msg = DialogMessage(
+                dialog_id=dialog_id,
+                request_id=request_id,
+                role=role,
+                content=content,
+                metadata_json=metadata
+            )
+            db.add(msg)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"保存消息失败: {e}")
+
+
+def _save_intermediate_result(db: Session, dialog_id: str, request_id: str, role: str, content: str, metadata: str = None):
+    """保存中间结果（更新或插入）"""
+    if not dialog_id:
+        return
+    
+    try:
+        # 查找是否已有该request_id的消息
+        existing = db.query(DialogMessage).filter(
+            DialogMessage.dialog_id == dialog_id,
+            DialogMessage.request_id == request_id,
+            DialogMessage.role == role
+        ).first()
+        
+        if existing:
+            existing.content = content
+            if metadata:
+                existing.metadata_json = metadata
+        else:
+            msg = DialogMessage(
+                dialog_id=dialog_id,
+                request_id=request_id,
+                role=role,
+                content=content,
+                metadata_json=metadata
+            )
+            db.add(msg)
+        
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"保存中间结果失败: {e}")
+
+
+def _save_script_version(db: Session, dialog_id: str, request_id: str, content: str, intent: str = None):
+    """保存脚本版本（只保存直播脚本相关的内容）"""
+    if not dialog_id:
+        return
+    
+    # 只保存直播脚本相关的版本，过滤掉普通对话
+    script_intents = ["generate_script", "score_script", "revise_script", "analyze_script"]
+    if intent and not any(i in intent for i in script_intents):
+        return  # 非脚本相关意图，不保存版本
+    
+    try:
+        # 根据意图判断版本类型
+        version_type = "generated"
+        if intent:
+            if "score" in intent:
+                version_type = "scored"
+            elif "revise" in intent:
+                version_type = "revised"
+            elif "analyze" in intent:
+                version_type = "analyzed"
+        
+        version = ScriptVersion(
+            dialog_id=dialog_id,
+            request_id=request_id,
+            version_type=version_type,
+            content=content
+        )
+        db.add(version)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"保存脚本版本失败: {e}")
+
+
+@router.get("/versions/{dialog_id}")
+async def get_script_versions(dialog_id: str, db: Session = Depends(get_db)):
+    """获取对话的脚本版本历史"""
+    versions = db.query(ScriptVersion).filter(
+        ScriptVersion.dialog_id == dialog_id
+    ).order_by(ScriptVersion.created_at).all()
+    
+    return [{
+        "id": v.id,
+        "dialog_id": v.dialog_id,
+        "request_id": v.request_id,
+        "version_type": v.version_type,
+        "content": v.content,
+        "score_data": v.score_data,
+        "created_at": v.created_at.strftime("%Y-%m-%d %H:%M:%S") if v.created_at else ""
+    } for v in versions]
+
+
 @router.post("/generate")
 async def generate_script(request: Request, db: Session = Depends(get_db)):
     """直接生成直播脚本（快捷接口）"""
@@ -270,7 +454,7 @@ async def generate_script(request: Request, db: Session = Depends(get_db)):
 
     file_content = None
     if file and hasattr(file, 'filename') and file.filename:
-        file_content = await parse_upload_file(file)
+        file_content, _ = await parse_upload_file(file)
 
     if not message and not file_content:
         raise HTTPException(status_code=400, detail="请提供产品信息或上传相关文件")

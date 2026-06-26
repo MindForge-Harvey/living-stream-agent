@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 import openpyxl
@@ -18,9 +19,16 @@ from app.services.forbidden_word_service import forbidden_word_service
 router = APIRouter(prefix="/api/forbidden-words", tags=["forbidden-words"])
 
 
+@router.get("/public")
+async def get_public_forbidden_words(db: Session = Depends(get_db)):
+    """获取违禁词列表（公开接口，用于前端过滤）"""
+    words = db.query(ForbiddenWord).order_by(ForbiddenWord.created_at.desc()).all()
+    return [{"id": w.id, "word": w.word, "replacement": w.replacement} for w in words]
+
+
 @router.get("", response_model=List[ForbiddenWordResponse])
 async def get_all_forbidden_words(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
-    """获取所有违禁词"""
+    """获取所有违禁词（管理员接口）"""
     words = db.query(ForbiddenWord).order_by(ForbiddenWord.created_at.desc()).all()
     return words
 
@@ -162,6 +170,38 @@ async def delete_all_forbidden_words(
     db.commit()
     forbidden_word_service.invalidate_cache()
     return {"success": True, "deleted": count}
+
+
+@router.get("/template")
+async def download_template(_admin=Depends(get_current_admin)):
+    """下载违禁词导入模板"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "违禁词模板"
+
+    # 设置表头
+    ws.append(["违禁词", "替换词", "级别"])
+
+    # 添加示例数据
+    ws.append(["示例违禁词1", "***", "multi"])
+    ws.append(["示例违禁词2", "xxx", "multi"])
+    ws.append(["单", "*", "single"])
+
+    # 设置列宽
+    ws.column_dimensions['A'].width = 20
+    ws.column_dimensions['B'].width = 15
+    ws.column_dimensions['C'].width = 10
+
+    # 保存到内存
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=forbidden_words_template.xlsx"}
+    )
 
 
 @router.get("/check")
