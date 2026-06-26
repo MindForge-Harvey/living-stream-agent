@@ -127,17 +127,92 @@ export async function updateMemory(memoryId, content) {
   return res.json()
 }
 
-export async function deleteMemory(memoryId) {
-  const res = await fetch(`/chat/api/memories/${memoryId}`, {
+export async function deleteMemory(memoryId, userId) {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
+  const res = await fetch(`/chat/api/memories/${memoryId}${params}`, {
     method: 'DELETE',
   })
   if (!res.ok) throw new Error('删除记忆失败')
-  return res.json()
+  // 安全解析 JSON，防止空响应导致解析错误
+  const text = await res.text()
+  return text ? JSON.parse(text) : { success: true }
 }
 
 // 违禁词相关 API
 export async function fetchForbiddenWords() {
-  const res = await fetch('/chat/api/forbidden-words')
+  const res = await fetch('/chat/api/forbidden-words/public')
   if (!res.ok) throw new Error('获取违禁词失败')
   return res.json()
+}
+
+// 脚本模板相关 API
+export async function fetchTemplates(category = null, productType = null) {
+  let url = '/chat/api/templates/public'
+  const params = new URLSearchParams()
+  if (category) params.append('category', category)
+  if (productType) params.append('product_type', productType)
+  if (params.toString()) url += '?' + params.toString()
+  
+  const res = await fetch(url)
+  if (!res.ok) throw new Error('获取模板失败')
+  return res.json()
+}
+
+export async function fetchTemplateById(templateId) {
+  const res = await fetch(`/chat/api/templates/${templateId}`)
+  if (!res.ok) throw new Error('获取模板详情失败')
+  return res.json()
+}
+
+export async function createTemplate(data) {
+  const token = localStorage.getItem('adminToken')
+  const res = await fetch('/chat/api/templates', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('创建模板失败')
+  return res.json()
+}
+
+export async function updateTemplate(templateId, data) {
+  const token = localStorage.getItem('adminToken')
+  const res = await fetch(`/chat/api/templates/${templateId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('更新模板失败')
+  return res.json()
+}
+
+// 脚本版本相关 API
+export async function fetchScriptVersions(dialogId) {
+  const res = await fetch(`/chat/api/agent/versions/${dialogId}`)
+  if (!res.ok) throw new Error('获取版本历史失败')
+  return res.json()
+}
+
+// 导出功能 API
+export async function exportScript(dialogId, format = 'txt') {
+  const res = await fetch('/chat/api/export', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ dialog_id: dialogId, format })
+  })
+  
+  if (!res.ok) {
+    const errData = await res.json().catch(() => ({}))
+    throw new Error(errData.detail || '导出失败')
+  }
+  
+  return res.blob()
 }

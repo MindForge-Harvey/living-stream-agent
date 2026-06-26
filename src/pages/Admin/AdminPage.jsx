@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
@@ -52,6 +52,31 @@ export default function AdminPage() {
   const [forbiddenWordSearchTerm, setForbiddenWordSearchTerm] = useState('')
   const [forbiddenWordCurrentPage, setForbiddenWordCurrentPage] = useState(1)
   const [importing, setImporting] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+
+  const [templates, setTemplates] = useState([])
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [templateEditItem, setTemplateEditItem] = useState(null)
+  const [templateFormData, setTemplateFormData] = useState({ name: '', product_type: '', description: '', template_content: '' })
+  const [templateSearchTerm, setTemplateSearchTerm] = useState('')
+
+  const [scoringConfigs, setScoringConfigs] = useState([])
+  const [scoringConfigDialogOpen, setScoringConfigDialogOpen] = useState(false)
+  const [scoringConfigEditItem, setScoringConfigEditItem] = useState(null)
+  const [scoringConfigFormData, setScoringConfigFormData] = useState({
+    name: '',
+    dimensions: [],
+    prompt_template: '',
+    is_default: false
+  })
+
+  const debounceTimerRef = useRef(null)
+  const statsSortRef = useRef(statsSort)
+
+  // 保持 statsSortRef 与 statsSort 同步
+  useEffect(() => {
+    statsSortRef.current = statsSort
+  }, [statsSort])
 
   useEffect(() => {
     const token = localStorage.getItem('adminToken')
@@ -62,6 +87,15 @@ export default function AdminPage() {
     loadStats()
     loadFilterOptions()
     loadForbiddenWords()
+    loadTemplates()
+    loadScoringConfigs()
+
+    // 组件卸载时清理防抖定时器
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
   }, [navigate])
 
   const loadForbiddenWords = async () => {
@@ -70,11 +104,179 @@ export default function AdminPage() {
       const res = await fetch('/chat/api/forbidden-words', {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
+      if (!res.ok) throw new Error('加载违禁词失败')
       const data = await res.json()
       setForbiddenWords(data)
     } catch (err) {
       console.error('加载违禁词失败:', err)
     }
+  }
+
+  const loadTemplates = async () => {
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/chat/api/templates', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      if (!res.ok) throw new Error('加载模板失败')
+      const data = await res.json()
+      setTemplates(data)
+    } catch (err) {
+      console.error('加载模板失败:', err)
+    }
+  }
+
+  const loadScoringConfigs = async () => {
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/chat/api/scoring-configs', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      if (!res.ok) throw new Error('加载打分配置失败')
+      const data = await res.json()
+      setScoringConfigs(data)
+    } catch (err) {
+      console.error('加载打分配置失败:', err)
+    }
+  }
+
+  const handleSaveTemplate = async () => {
+    if (!templateFormData.name.trim() || !templateFormData.template_content.trim()) {
+      alert('请填写模板名称和内容')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('adminToken')
+      const url = templateEditItem 
+        ? `/chat/api/templates/${templateEditItem.id}`
+        : '/chat/api/templates'
+      const method = templateEditItem ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          ...templateFormData,
+          category: templateEditItem ? templateEditItem.category : 'custom'
+        })
+      })
+
+      if (res.ok) {
+        setTemplateDialogOpen(false)
+        setTemplateEditItem(null)
+        setTemplateFormData({ name: '', product_type: '', description: '', template_content: '' })
+        loadTemplates()
+      } else {
+        const err = await res.json()
+        alert(err.detail || '保存失败')
+      }
+    } catch (err) {
+      alert('保存失败: ' + err.message)
+    }
+  }
+
+  const handleDeleteTemplate = async (id) => {
+    if (!confirm('确定删除此模板？')) return
+
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(`/chat/api/templates/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        loadTemplates()
+      } else {
+        const err = await res.json()
+        alert(err.detail || '删除失败')
+      }
+    } catch (err) {
+      alert('删除失败: ' + err.message)
+    }
+  }
+
+  const handleEditTemplate = (template) => {
+    setTemplateEditItem(template)
+    setTemplateFormData({
+      name: template.name,
+      product_type: template.product_type || '',
+      description: template.description || '',
+      template_content: template.template_content
+    })
+    setTemplateDialogOpen(true)
+  }
+
+  const handleSaveScoringConfig = async () => {
+    if (!scoringConfigFormData.name.trim() || !scoringConfigFormData.prompt_template.trim()) {
+      alert('请填写配置名称和提示模板')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('adminToken')
+      const url = scoringConfigEditItem 
+        ? `/chat/api/scoring-configs/${scoringConfigEditItem.id}`
+        : '/chat/api/scoring-configs'
+      const method = scoringConfigEditItem ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(scoringConfigFormData)
+      })
+
+      if (res.ok) {
+        setScoringConfigDialogOpen(false)
+        setScoringConfigEditItem(null)
+        setScoringConfigFormData({ name: '', dimensions: [], prompt_template: '', is_default: false })
+        loadScoringConfigs()
+      } else {
+        const err = await res.json()
+        alert(err.detail || '保存失败')
+      }
+    } catch (err) {
+      alert('保存失败: ' + err.message)
+    }
+  }
+
+  const handleDeleteScoringConfig = async (id) => {
+    if (!confirm('确定删除此配置？')) return
+
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(`/chat/api/scoring-configs/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+
+      if (res.ok) {
+        loadScoringConfigs()
+      } else {
+        const err = await res.json()
+        alert(err.detail || '删除失败')
+      }
+    } catch (err) {
+      alert('删除失败: ' + err.message)
+    }
+  }
+
+  const handleEditScoringConfig = (config) => {
+    setScoringConfigEditItem(config)
+    setScoringConfigFormData({
+      name: config.name,
+      dimensions: config.dimensions || [],
+      prompt_template: config.prompt_template,
+      is_default: config.is_default
+    })
+    setScoringConfigDialogOpen(true)
   }
 
   const loadStats = async (filters = statsFilter, sort = statsSort, page = statsPage) => {
@@ -121,12 +323,24 @@ export default function AdminPage() {
     }
   }
 
-  const handleStatsFilterChange = (key, value) => {
+  const handleStatsFilterChange = useCallback((key, value) => {
     const newFilter = { ...statsFilter, [key]: value }
     setStatsFilter(newFilter)
     setStatsPage(1)
-    loadStats(newFilter, statsSort, 1)
-  }
+    
+    // 对 keyword 搜索添加防抖
+    if (key === 'keyword') {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+      debounceTimerRef.current = setTimeout(() => {
+        // 从 ref 获取最新的 statsSort，避免闭包过期
+        loadStats(newFilter, statsSortRef.current, 1)
+      }, 300)
+    } else {
+      loadStats(newFilter, statsSort, 1)
+    }
+  }, [statsFilter, statsSort])
 
   const handleStatsSort = (field) => {
     const newSort = statsSort.sortBy === field
@@ -237,6 +451,7 @@ export default function AdminPage() {
 
   const handleLogout = () => {
     localStorage.removeItem('adminToken')
+    localStorage.removeItem('userInfo')
     navigate('/chat/')
   }
 
@@ -339,6 +554,34 @@ export default function AdminPage() {
     }
   }
 
+  const handleDownloadTemplate = async () => {
+    setDownloading(true)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch('/chat/api/forbidden-words/template', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = window.URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = 'forbidden_words_template.xlsx'
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+      } else {
+        alert('下载模板失败')
+      }
+    } catch (err) {
+      alert('下载失败: ' + err.message)
+    } finally {
+      setDownloading(false)
+    }
+  }
+
   const handleDeleteAllForbiddenWords = async () => {
     if (!confirm('确定清空所有违禁词？此操作不可恢复！')) return
     try {
@@ -399,7 +642,9 @@ export default function AdminPage() {
 
   const tabs = [
     { key: 'statistics', label: '用户使用统计', icon: '📊' },
-    { key: 'forbidden', label: '违禁词配置', icon: '🚫' }
+    { key: 'forbidden', label: '违禁词配置', icon: '🚫' },
+    { key: 'templates', label: '模板管理', icon: '📝' },
+    { key: 'scoring', label: '打分配置', icon: '⭐' }
   ]
 
   const handleTabChange = (tabKey) => {
@@ -415,7 +660,7 @@ export default function AdminPage() {
           <h1 className={styles.title}>后台管理</h1>
         </div>
         <div className={styles.headerRight}>
-          <button className={styles.homeBtn} onClick={() => navigate('/chat/')}>返回首页</button>
+          <button className={styles.homeBtn} onClick={() => navigate('/chat/')}>返回对话</button>
           <button className={styles.passwordBtn} onClick={() => setPasswordDialogOpen(true)}>修改密码</button>
           <button className={styles.logoutBtn} onClick={handleLogout}>退出登录</button>
         </div>
@@ -463,6 +708,14 @@ export default function AdminPage() {
                   )}
                 </div>
                 <div className={styles.toolbarActions}>
+                  <button className={styles.downloadBtn} onClick={handleDownloadTemplate} disabled={downloading}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    {downloading ? '下载中...' : '下载模板'}
+                  </button>
                   <label className={styles.importBtn}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -590,6 +843,132 @@ export default function AdminPage() {
                 )
               })()}
             </>
+          )}
+
+          {activeTab === 'templates' && (
+            <>
+              <div className={styles.toolbar}>
+                <div className={styles.searchBox}>
+                  <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input
+                    className={styles.searchInput}
+                    type="text"
+                    placeholder="搜索模板..."
+                    value={templateSearchTerm}
+                    onChange={(e) => setTemplateSearchTerm(e.target.value)}
+                  />
+                  {templateSearchTerm && (
+                    <button className={styles.clearBtn} onClick={() => setTemplateSearchTerm('')}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+                <div className={styles.toolbarActions}>
+                  <button className={styles.addBtn} onClick={() => {
+                    setTemplateEditItem(null)
+                    setTemplateFormData({ name: '', product_type: '', description: '', template_content: '' })
+                    setTemplateDialogOpen(true)
+                  }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                    新增模板
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.tableWrapper}>
+                <table className={styles.table}>
+                  <thead>
+                    <tr>
+                      <th>模板名称</th>
+                      <th>类型</th>
+                      <th>分类</th>
+                      <th>描述</th>
+                      <th>操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {templates
+                      .filter(t => !templateSearchTerm || t.name.includes(templateSearchTerm) || t.description?.includes(templateSearchTerm))
+                      .map(template => (
+                        <tr key={template.id}>
+                          <td className={styles.wordCell}>{template.name}</td>
+                          <td>{template.product_type || '-'}</td>
+                          <td>
+                            <span className={template.category === 'preset' ? styles.presetBadge : styles.customBadge}>
+                              {template.category === 'preset' ? '系统' : '自定义'}
+                            </span>
+                          </td>
+                          <td className={styles.descCell}>{template.description || '-'}</td>
+                          <td>
+                            <div className={styles.actions}>
+                              <button className={styles.editBtn} onClick={() => handleEditTemplate(template)}>
+                                编辑
+                              </button>
+                              {template.category !== 'preset' && (
+                                <button className={styles.deleteBtn} onClick={() => handleDeleteTemplate(template.id)}>
+                                  删除
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    {templates.filter(t => !templateSearchTerm || t.name.includes(templateSearchTerm)).length === 0 && (
+                      <tr>
+                        <td colSpan="5" className={styles.emptyCell}>暂无模板</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'scoring' && (
+            <div className={styles.scoringContainer}>
+              <div className={styles.scoringHeader}>
+                <h3>打分依据配置</h3>
+                <p className={styles.scoringDesc}>配置脚本打分的评分维度和提示模板，修改后将影响后续的脚本打分结果。</p>
+              </div>
+
+              {scoringConfigs.length > 0 ? (
+                <div className={styles.scoringContent}>
+                  <div className={styles.scoringSection}>
+                    <h4>评分维度</h4>
+                    <div className={styles.dimensionsDisplay}>
+                      {(scoringConfigs[0]?.dimensions || []).map((dim, index) => (
+                        <div key={index} className={styles.dimensionCard}>
+                          <div className={styles.dimensionName}>{dim.name}</div>
+                          <div className={styles.dimensionDesc}>{dim.description}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className={styles.scoringSection}>
+                    <h4>提示模板</h4>
+                    <pre className={styles.promptPreview}>{scoringConfigs[0]?.prompt_template}</pre>
+                  </div>
+
+                  <div className={styles.scoringActions}>
+                    <button className={styles.editBtn} onClick={() => handleEditScoringConfig(scoringConfigs[0])}>
+                      编辑配置
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className={styles.emptyScoring}>暂无打分配置</div>
+              )}
+            </div>
           )}
 
           {activeTab === 'statistics' && (
@@ -874,6 +1253,165 @@ export default function AdminPage() {
                 <button type="submit" className={styles.saveBtn}>保存</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {templateDialogOpen && (
+        <div className={styles.overlay} onClick={() => setTemplateDialogOpen(false)}>
+          <div className={styles.templateDialog} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.dialogHeader}>
+              <h3>{templateEditItem ? '编辑模板' : '新增模板'}</h3>
+              <button className={styles.closeBtn} onClick={() => setTemplateDialogOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={styles.form}>
+              <div className={styles.field}>
+                <label className={styles.label}>模板名称 <span className={styles.required}>*</span></label>
+                <input
+                  className={styles.input}
+                  value={templateFormData.name}
+                  onChange={(e) => setTemplateFormData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="输入模板名称"
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>产品类型</label>
+                <input
+                  className={styles.input}
+                  value={templateFormData.product_type}
+                  onChange={(e) => setTemplateFormData(prev => ({ ...prev, product_type: e.target.value }))}
+                  placeholder="如：通信、数码、食品等"
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>模板描述</label>
+                <input
+                  className={styles.input}
+                  value={templateFormData.description}
+                  onChange={(e) => setTemplateFormData(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="简短描述模板用途"
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>模板内容 <span className={styles.required}>*</span></label>
+                <textarea
+                  className={styles.textarea}
+                  value={templateFormData.template_content}
+                  onChange={(e) => setTemplateFormData(prev => ({ ...prev, template_content: e.target.value }))}
+                  placeholder="输入模板内容，支持 Markdown 格式"
+                  rows={12}
+                />
+              </div>
+
+              <div className={styles.dialogActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setTemplateDialogOpen(false)}>取消</button>
+                <button type="button" className={styles.saveBtn} onClick={handleSaveTemplate}>保存</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {scoringConfigDialogOpen && (
+        <div className={styles.overlay} onClick={() => setScoringConfigDialogOpen(false)}>
+          <div className={styles.scoringDialog} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.dialogHeader}>
+              <h3>{scoringConfigEditItem ? '编辑打分配置' : '新增打分配置'}</h3>
+              <button className={styles.closeBtn} onClick={() => setScoringConfigDialogOpen(false)}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            <div className={styles.form}>
+              <div className={styles.field}>
+                <label className={styles.label}>配置名称 <span className={styles.required}>*</span></label>
+                <input
+                  className={styles.input}
+                  value={scoringConfigFormData.name}
+                  onChange={(e) => setScoringConfigFormData(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="输入配置名称"
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>评分维度</label>
+                <div className={styles.dimensionsList}>
+                  {(scoringConfigFormData.dimensions || []).map((dim, index) => (
+                    <div key={index} className={styles.dimensionItem}>
+                      <input
+                        className={styles.dimensionInput}
+                        value={dim.name}
+                        onChange={(e) => {
+                          const newDimensions = [...scoringConfigFormData.dimensions]
+                          newDimensions[index] = { ...dim, name: e.target.value }
+                          setScoringConfigFormData(prev => ({ ...prev, dimensions: newDimensions }))
+                        }}
+                        placeholder="维度名称"
+                      />
+                      <button
+                        className={styles.removeDimensionBtn}
+                        onClick={() => {
+                          const newDimensions = scoringConfigFormData.dimensions.filter((_, i) => i !== index)
+                          setScoringConfigFormData(prev => ({ ...prev, dimensions: newDimensions }))
+                        }}
+                      >
+                        删除
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className={styles.addDimensionBtn}
+                    onClick={() => {
+                      setScoringConfigFormData(prev => ({
+                        ...prev,
+                        dimensions: [...(prev.dimensions || []), { name: '', key: '', description: '', scores: {} }]
+                      }))
+                    }}
+                  >
+                    + 添加维度
+                  </button>
+                </div>
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.label}>提示模板 <span className={styles.required}>*</span></label>
+                <textarea
+                  className={styles.textarea}
+                  value={scoringConfigFormData.prompt_template}
+                  onChange={(e) => setScoringConfigFormData(prev => ({ ...prev, prompt_template: e.target.value }))}
+                  placeholder="输入打分提示模板"
+                  rows={15}
+                />
+              </div>
+
+              <div className={styles.field}>
+                <label className={styles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={scoringConfigFormData.is_default}
+                    onChange={(e) => setScoringConfigFormData(prev => ({ ...prev, is_default: e.target.checked }))}
+                  />
+                  设为默认配置
+                </label>
+              </div>
+
+              <div className={styles.dialogActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setScoringConfigDialogOpen(false)}>取消</button>
+                <button type="button" className={styles.saveBtn} onClick={handleSaveScoringConfig}>保存</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

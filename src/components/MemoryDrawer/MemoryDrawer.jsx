@@ -45,7 +45,7 @@ export default function MemoryDrawer({ open, onClose, userId }) {
   const handleDelete = async (id) => {
     if (!confirm('确定删除这条记忆？')) return
     try {
-      await deleteMemory(id)
+      await deleteMemory(id, userId)
       setMemories(prev => prev.filter(m => m.id !== id))
       showToast('已删除', 'success')
     } catch (err) {

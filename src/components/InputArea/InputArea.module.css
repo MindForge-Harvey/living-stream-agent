@@ -3,6 +3,11 @@
   background: var(--chat-bg);
 }
 
+.inputArea.center {
+  padding: 0;
+  background: transparent;
+}
+
 .fileTag {
   max-width: 780px;
   margin: 0 auto 8px;
@@ -57,14 +62,15 @@
   border-color: var(--primary);
 }
 
-.wrapper.disabled {
-  background: #f9fafb;
-  cursor: pointer;
-  opacity: 0.8;
+.center .wrapper {
+  max-width: 600px;
+  border-radius: 24px;
+  padding: 14px 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
-.wrapper.disabled:hover {
-  border-color: var(--primary);
+.center .wrapper:focus-within {
+  box-shadow: 0 2px 16px rgba(37, 99, 235, 0.15);
 }
 
 .hiddenInput {
@@ -102,6 +108,10 @@
   max-height: 120px;
   font-family: inherit;
   color: var(--text-primary);
+}
+
+.center .input {
+  font-size: 15px;
 }
 
 .input::placeholder {
@@ -155,4 +165,11 @@
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
+}
+
+.fileHint {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
 }

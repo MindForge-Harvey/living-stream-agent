@@ -1,17 +1,33 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { showToast } from '../Toast/Toast'
 import styles from './InputArea.module.css'
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+const ALLOWED_FILE_TYPES = '.doc,.docx,.pdf,.txt,.xls,.xlsx'
+const ALLOWED_FILE_EXTENSIONS = ['doc', 'docx', 'pdf', 'txt', 'xls', 'xlsx']
 
-export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, disabled, onDisabledClick }) {
+export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, isCenter, initialValue }) {
   const [value, setValue] = useState('')
   const [file, setFile] = useState(null)
   const textareaRef = useRef(null)
   const fileInputRef = useRef(null)
 
+  useEffect(() => {
+    if (initialValue) {
+      setValue(initialValue)
+      // 调整textarea高度
+      setTimeout(() => {
+        const el = textareaRef.current
+        if (el) {
+          el.style.height = 'auto'
+          el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+          el.focus()
+        }
+      }, 0)
+    }
+  }, [initialValue])
+
   const handleInput = (e) => {
-    if (disabled) return
     setValue(e.target.value)
     const el = textareaRef.current
     el.style.height = 'auto'
@@ -19,10 +35,6 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
   }
 
   const handleKeyDown = (e) => {
-    if (disabled) {
-      if (onDisabledClick) onDisabledClick()
-      return
-    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
@@ -37,6 +49,14 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
         e.target.value = ''
         return
       }
+      
+      const ext = selected.name.split('.').pop().toLowerCase()
+      if (!ALLOWED_FILE_EXTENSIONS.includes(ext)) {
+        showToast(`不支持 .${ext} 格式，请上传 Word/PDF/TXT/Excel 文件`, 'warning')
+        e.target.value = ''
+        return
+      }
+      
       setFile(selected)
     }
   }
@@ -56,14 +76,8 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
     textareaRef.current.style.height = 'auto'
   }
 
-  const handleClick = () => {
-    if (disabled && onDisabledClick) {
-      onDisabledClick()
-    }
-  }
-
   return (
-    <div className={styles.inputArea} onClick={handleClick}>
+    <div className={`${styles.inputArea} ${isCenter ? styles.center : ''}`}>
       {file && (
         <div className={styles.fileTag}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -79,20 +93,20 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
           </button>
         </div>
       )}
-      <div className={`${styles.wrapper} ${disabled ? styles.disabled : ''}`}>
-        {showFileUpload && !disabled && (
+      <div className={styles.wrapper}>
+        {showFileUpload && (
           <>
             <input
               ref={fileInputRef}
               type="file"
               className={styles.hiddenInput}
               onChange={handleFileChange}
-              accept=".doc,.docx,.pdf,.txt,.xls,.xlsx"
+              accept={ALLOWED_FILE_TYPES}
             />
             <button
               className={styles.uploadBtn}
               onClick={() => fileInputRef.current?.click()}
-              title="上传文件"
+              title="上传文件 (支持 Word/PDF/TXT/Excel)"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
@@ -103,12 +117,11 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
         <textarea
           ref={textareaRef}
           className={styles.input}
-          placeholder={disabled ? "请先新建对话..." : "输入内容..."}
+          placeholder="输入内容开始对话..."
           rows={1}
           value={value}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          readOnly={disabled}
         />
         {isLoading ? (
           <button
@@ -124,7 +137,7 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
           <button
             className={styles.sendBtn}
             onClick={handleSend}
-            disabled={disabled || (!value.trim() && !file)}
+            disabled={!value.trim() && !file}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13" />
@@ -133,6 +146,11 @@ export default function InputArea({ onSend, onAbort, showFileUpload, isLoading, 
           </button>
         )}
       </div>
+      {showFileUpload && !isCenter && (
+        <div className={styles.fileHint}>
+          支持 Word (.doc/.docx)、PDF、TXT、Excel (.xls/.xlsx)，最大 10MB
+        </div>
+      )}
     </div>
   )
 }

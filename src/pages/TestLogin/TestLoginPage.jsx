@@ -30,11 +30,11 @@ export default function TestLoginPage() {
     const userInfo = {
       platformUserId: userId.trim(),
       platformToken: 'test-token',
-      lan_name: '',
-      region_name: '',
-      staff_code: '',
-      staff_name: staffName.trim() || userId.trim(),
-      staff_pos_type: '',
+      lanName: '',
+      regionName: '',
+      staffCode: '',
+      staffName: staffName.trim() || userId.trim(),
+      staffPosType: '',
     }
 
     // 打开新窗口并发送登录信息
@@ -45,7 +45,7 @@ export default function TestLoginPage() {
       chatWindow.postMessage({
         type: 'PLATFORM_LOGIN',
         ...userInfo
-      }, '*')
+      }, window.location.origin)
     }, 1000)
 
     // 也可以直接跳转

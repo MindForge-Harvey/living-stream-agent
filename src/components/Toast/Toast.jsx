@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import styles from './Toast.module.css'
 
 let toastId = 0
@@ -12,24 +12,37 @@ export function showToast(message, type = 'error', duration = 3000) {
 
 export default function Toast() {
   const [toasts, setToasts] = useState([])
+  const timersRef = useRef(new Map())
 
   const addToast = useCallback((toast) => {
     setToasts(prev => [...prev, toast])
     
     if (toast.duration > 0) {
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         setToasts(prev => prev.filter(t => t.id !== toast.id))
+        timersRef.current.delete(toast.id)
       }, toast.duration)
+      timersRef.current.set(toast.id, timerId)
     }
   }, [])
 
   const removeToast = useCallback((id) => {
+    const timerId = timersRef.current.get(id)
+    if (timerId) {
+      clearTimeout(timerId)
+      timersRef.current.delete(id)
+    }
     setToasts(prev => prev.filter(t => t.id !== id))
   }, [])
 
   useEffect(() => {
     listeners.add(addToast)
-    return () => listeners.delete(addToast)
+    return () => {
+      listeners.delete(addToast)
+      // 清理所有定时器
+      timersRef.current.forEach(timerId => clearTimeout(timerId))
+      timersRef.current.clear()
+    }
   }, [addToast])
 
   if (toasts.length === 0) return null

@@ -1,12 +1,10 @@
 import styles from './Sidebar.module.css'
 
-const CACHE_KEY = 'chat_user_info'
-
 export default function Sidebar({ dialogs, activeDialogId, onSelectDialog, onNewChat, onDeleteDialog, open, connectionStatus, userInfo }) {
   const userId = userInfo?.platformUserId
   const staffName = userInfo?.staffName
   const handleLogout = () => {
-    localStorage.removeItem(CACHE_KEY)
+    localStorage.removeItem('userInfo')
     window.location.reload()
   }
 

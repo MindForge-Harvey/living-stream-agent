@@ -5,6 +5,8 @@ import App from './App'
 import LoginPage from './pages/Login/LoginPage'
 import AdminPage from './pages/Admin/AdminPage'
 import TestLoginPage from './pages/TestLogin/TestLoginPage'
+import SuperLoginPage from './pages/SuperAdmin/SuperLoginPage'
+import SuperConfigPage from './pages/SuperAdmin/SuperConfigPage'
 import './styles/variables.css'
 
 function ChatRoute() {
@@ -13,13 +15,25 @@ function ChatRoute() {
   const [searchParams] = useSearchParams()
 
   useEffect(() => {
+    // 检查 localStorage 中是否有保存的用户信息
+    const savedUserInfo = localStorage.getItem('userInfo')
+    if (savedUserInfo) {
+      try {
+        setUserInfo(JSON.parse(savedUserInfo))
+        setWaiting(false)
+        return
+      } catch (e) {
+        localStorage.removeItem('userInfo')
+      }
+    }
+
     // 检查 URL 参数中是否有用户信息
     const userIdFromUrl = searchParams.get('userId')
     const staffNameFromUrl = searchParams.get('staffName')
     
     if (userIdFromUrl) {
       // 从 URL 参数直接登录
-      setUserInfo({
+      const info = {
         platformUserId: userIdFromUrl,
         platformToken: 'url-token',
         lanName: '',
@@ -27,7 +41,9 @@ function ChatRoute() {
         staffCode: '',
         staffName: staffNameFromUrl || userIdFromUrl,
         staffPosType: '',
-      })
+      }
+      setUserInfo(info)
+      localStorage.setItem('userInfo', JSON.stringify(info))
       setWaiting(false)
       return
     }
@@ -47,15 +63,18 @@ function ChatRoute() {
     const handler = (event) => {
       if (event.data?.type === 'PLATFORM_LOGIN' && event.data.platformUserId) {
         clearTimeout(timeout)
-        setUserInfo({
+        const info = {
           platformUserId: event.data.platformUserId,
           platformToken: event.data.platformToken,
-          lanName: event.data.lan_name || '',
-          regionName: event.data.region_name || '',
-          staffCode: event.data.staff_code || '',
-          staffName: event.data.staff_name || '',
-          staffPosType: event.data.staff_pos_type || '',
-        })
+          // 兼容蛇形和驼峰两种命名格式
+          lanName: event.data.lanName || event.data.lan_name || '',
+          regionName: event.data.regionName || event.data.region_name || '',
+          staffCode: event.data.staffCode || event.data.staff_code || '',
+          staffName: event.data.staffName || event.data.staff_name || '',
+          staffPosType: event.data.staffPosType || event.data.staff_pos_type || '',
+        }
+        setUserInfo(info)
+        localStorage.setItem('userInfo', JSON.stringify(info))
         setWaiting(false)
       }
     }
@@ -101,6 +120,14 @@ function AdminRoute({ children }) {
   return children
 }
 
+function SuperAdminRoute({ children }) {
+  const token = localStorage.getItem('superAdminToken')
+  if (!token) {
+    return <Navigate to="/superlogin" replace />
+  }
+  return children
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
@@ -111,6 +138,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <Route path="/chat/config" element={<AdminRoute><AdminPage /></AdminRoute>} />
         <Route path="/chat/test" element={<Navigate to="/chat/test/login" replace />} />
         <Route path="/chat/test/login" element={<TestLoginPage />} />
+        <Route path="/superlogin" element={<SuperLoginPage />} />
+        <Route path="/superconfig" element={<SuperAdminRoute><SuperConfigPage /></SuperAdminRoute>} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>

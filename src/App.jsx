@@ -5,6 +5,8 @@ import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
 import InputArea from './components/InputArea/InputArea'
 import MemoryDrawer from './components/MemoryDrawer/MemoryDrawer'
+import TemplateSelector from './components/TemplateSelector/TemplateSelector'
+import VersionHistory from './components/VersionHistory/VersionHistory'
 import Toast, { showToast } from './components/Toast/Toast'
 import styles from './App.module.css'
 
@@ -37,9 +39,18 @@ export default function App({ userInfo }) {
   const [loadingDialogs, setLoadingDialogs] = useState(false)
   const [memoryDrawerOpen, setMemoryDrawerOpen] = useState(false)
   const [forbiddenWords, setForbiddenWords] = useState([])
+  const [templateSelectorOpen, setTemplateSelectorOpen] = useState(false)
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false)
+  const [inputText, setInputText] = useState('')
   const abortControllerRef = useRef(null)
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
+  const currentDialogRef = useRef(currentDialog)
+
+  // 保持 currentDialogRef 与 currentDialog 同步
+  useEffect(() => {
+    currentDialogRef.current = currentDialog
+  }, [currentDialog])
 
   useEffect(() => {
     messagesRef.current = messages
@@ -186,17 +197,57 @@ export default function App({ userInfo }) {
   }, [currentDialog, userId])
 
   const clearChat = useCallback(() => {
-    if (!confirm('确定要清空当前对话的所有消息吗？')) return
-    setMessages([{
-      role: 'assistant',
-      content: `已准备好，可以开始使用「${AGENT_INFO.name}」。`,
-      time: getTime(),
-    }])
-  }, [])
+    if (!currentDialog) return
+    deleteDialog(currentDialog.id)
+  }, [currentDialog, deleteDialog])
+
+  // 创建对话并发送消息
+  const createDialogAndSend = useCallback(async (text, file) => {
+    const requestData = {
+      userId: userId,
+      toolId: AGENT_INFO.toolId,
+      toolName: AGENT_INFO.name,
+      title: text.slice(0, 20) + (text.length > 20 ? '...' : ''),
+      lanName: userInfo?.lanName || '',
+      regionName: userInfo?.regionName || '',
+      staffCode: userInfo?.staffCode || '',
+      staffName: userInfo?.staffName || '',
+      staffPosType: userInfo?.staffPosType || '',
+    }
+
+    try {
+      const res = await fetch('/chat/api/dialogs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      })
+
+      if (res.ok) {
+        const dialog = await res.json()
+        setDialogs(prev => [dialog, ...prev])
+        setCurrentDialog(dialog)
+        setSidebarOpen(false)
+        // 等待状态更新后再发送消息
+        return dialog
+      } else {
+        const error = await res.json()
+        showToast(error.detail || '创建对话失败', 'error')
+        return null
+      }
+    } catch (err) {
+      showToast('创建对话失败: ' + err.message, 'error')
+      return null
+    }
+  }, [userId, userInfo])
 
   const sendMessage = useCallback(
     async (text, file) => {
-      if (!currentDialog) return
+      // 如果没有当前对话，先创建对话
+      let dialog = currentDialogRef.current
+      if (!dialog) {
+        dialog = await createDialogAndSend(text, file)
+        if (!dialog) return
+      }
 
       const userMsg = {
         role: 'user',
@@ -211,7 +262,7 @@ export default function App({ userInfo }) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            dialogId: currentDialog.id,
+            dialogId: dialog.id,
             userId: userId,
             role: 'user',
             content: text,
@@ -229,7 +280,7 @@ export default function App({ userInfo }) {
       abortControllerRef.current = controller
 
       try {
-        const result = await callAgent(currentDialog.id, text, file, (partialText) => {
+        const result = await callAgent(dialog.id, text, file, (partialText) => {
           setMessages(prev => {
             const updated = [...prev]
             const lastIdx = updated.length - 1
@@ -246,7 +297,7 @@ export default function App({ userInfo }) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                dialogId: currentDialog.id,
+                dialogId: dialog.id,
                 userId: userId,
                 role: 'assistant',
                 content: result,
@@ -288,7 +339,7 @@ export default function App({ userInfo }) {
         abortControllerRef.current = null
       }
     },
-    [currentDialog, userId]
+    [currentDialog, userId, createDialogAndSend]
   )
 
   const handleAbort = useCallback(() => {
@@ -312,9 +363,30 @@ export default function App({ userInfo }) {
     if (lastUserIdx < 0) return
 
     const lastUserMsg = msgs[lastUserIdx]
+    // 直接截取消息，然后立即发送（使用 ref 获取最新状态）
     setMessages(msgs.slice(0, lastUserIdx))
-    setTimeout(() => sendMessage(lastUserMsg.content), 50)
+    // 使用 setTimeout 确保状态更新后再发送
+    setTimeout(() => {
+      const dialog = currentDialogRef.current
+      if (dialog) {
+        sendMessage(lastUserMsg.content)
+      }
+    }, 100)
   }, [isTyping, sendMessage])
+
+  const handleTemplateSelect = useCallback((template) => {
+    const message = `请使用以下模板生成直播脚本：
+
+模板名称：${template.name}
+模板类型：${template.product_type || '通用'}
+
+${template.template_content}
+
+请根据这个模板结构，生成一个完整的直播脚本。`
+    
+    // 将模板内容设置到输入框，让用户可以修改后再发送
+    setInputText(message)
+  }, [])
 
   const showSuggestions = messages.length <= 1 && !isTyping
 
@@ -337,42 +409,84 @@ export default function App({ userInfo }) {
           onBack={() => setSidebarOpen((v) => !v)}
           onClear={clearChat}
           onMemory={() => setMemoryDrawerOpen(true)}
+          onVersionHistory={() => setVersionHistoryOpen(true)}
+          onTemplateSelect={() => setTemplateSelectorOpen(true)}
+          dialogId={currentDialog?.id}
         />
         {currentDialog ? (
-          <ChatArea
-            messages={messages}
-            tool={AGENT_INFO}
-            isTyping={isTyping}
-            showSuggestions={showSuggestions}
-            onSuggestionClick={(text) => sendMessage(text)}
-            userInfo={userInfo}
-            onRetry={retryLastMessage}
-            forbiddenWords={forbiddenWords}
-          />
+          <>
+            <ChatArea
+              messages={messages}
+              tool={AGENT_INFO}
+              isTyping={isTyping}
+              showSuggestions={showSuggestions}
+              onSuggestionClick={(text) => sendMessage(text)}
+              userInfo={userInfo}
+              onRetry={retryLastMessage}
+              forbiddenWords={forbiddenWords}
+            />
+            <InputArea 
+              onSend={(text, file) => {
+                sendMessage(text, file)
+                setInputText('')
+              }} 
+              onAbort={handleAbort} 
+              showFileUpload={true}
+              isLoading={isTyping}
+              initialValue={inputText}
+            />
+          </>
         ) : (
           <div className={styles.welcome}>
-            <div className={styles.welcomeIcon}>🎙️</div>
-            <h2>直播脚本生成智能体</h2>
-            <p>点击"新建对话"开始使用</p>
-            <button className={styles.startBtn} onClick={createNewDialog}>
-              新建对话
-            </button>
+            <div className={styles.welcomeContent}>
+              <div className={styles.welcomeIcon}>🎙️</div>
+              <h2>直播脚本生成智能体</h2>
+              <div className={styles.welcomeInputWrapper}>
+                <InputArea 
+                  onSend={(text, file) => {
+                    sendMessage(text, file)
+                    setInputText('')
+                  }} 
+                  onAbort={handleAbort} 
+                  showFileUpload={true}
+                  isLoading={isTyping}
+                  isCenter={true}
+                  initialValue={inputText}
+                />
+              </div>
+              <div className={styles.suggestions}>
+                {AGENT_INFO.suggestions.map((text, i) => (
+                  <button
+                    key={i}
+                    className={styles.suggestionBtn}
+                    onClick={() => sendMessage(text)}
+                  >
+                    {text}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
-        <InputArea 
-          onSend={sendMessage} 
-          onAbort={handleAbort} 
-          showFileUpload={!!currentDialog} 
-          isLoading={isTyping} 
-          disabled={!currentDialog} 
-          onDisabledClick={createNewDialog} 
-        />
       </main>
       <MemoryDrawer
         open={memoryDrawerOpen}
         onClose={() => setMemoryDrawerOpen(false)}
         userId={userId}
       />
+      {templateSelectorOpen && (
+        <TemplateSelector
+          onSelect={handleTemplateSelect}
+          onClose={() => setTemplateSelectorOpen(false)}
+          userId={userId}
+        />
+      )}
+      {versionHistoryOpen && currentDialog && (
+        <VersionHistory
+          dialogId={currentDialog.id}
+          onClose={() => setVersionHistoryOpen(false)}
+        />
+      )}
     </div>
   )
 }

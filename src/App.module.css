@@ -17,39 +17,52 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
-  color: var(--text-secondary);
+  padding: 20px;
+}
+
+.welcomeContent {
+  text-align: center;
+  width: 100%;
+  max-width: 600px;
 }
 
 .welcomeIcon {
-  font-size: 48px;
-  margin-bottom: 8px;
+  font-size: 56px;
+  margin-bottom: 12px;
 }
 
 .welcome h2 {
   font-size: 24px;
   font-weight: 600;
   color: var(--text-primary);
+  margin-bottom: 32px;
 }
 
-.welcome p {
-  font-size: 14px;
-  color: var(--text-muted);
+.welcomeInputWrapper {
+  width: 100%;
+  margin-bottom: 24px;
 }
 
-.startBtn {
-  margin-top: 16px;
-  padding: 12px 32px;
-  background: var(--primary);
-  color: #fff;
-  border: none;
-  border-radius: var(--radius-sm);
-  font-size: 15px;
-  font-weight: 500;
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.suggestionBtn {
+  padding: 10px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--text-primary);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: all 0.15s;
 }
 
-.startBtn:hover {
-  background: var(--primary-light);
+.suggestionBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--primary);
+  color: var(--primary);
 }

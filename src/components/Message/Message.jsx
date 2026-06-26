@@ -3,6 +3,25 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import styles from './Message.module.css'
 
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function highlightForbiddenWordsInHtml(html, forbiddenWords) {
+  if (!forbiddenWords || forbiddenWords.length === 0 || !html) return html
+
+  let result = html
+  for (const wordObj of forbiddenWords) {
+    const word = wordObj.word || wordObj
+    if (!word) continue
+    
+    const escapedWord = escapeRegExp(word)
+    const regex = new RegExp(`(?<!<mark[^>]*>)${escapedWord}(?![^<]*</mark>)`, 'g')
+    result = result.replace(regex, `<mark class="${styles.forbiddenWord}">${word}</mark>`)
+  }
+  return result
+}
+
 export default function Message({ role, content, fileName, time, tool, userInfo, isLast, onRetry, forbiddenWords }) {
   const isUser = role === 'user'
   const userId = userInfo?.platformUserId
@@ -11,31 +30,17 @@ export default function Message({ role, content, fileName, time, tool, userInfo,
   const safeContent = typeof content === 'string' ? content : String(content || '')
   const [copied, setCopied] = useState(false)
 
-  const highlightedContent = useMemo(() => {
-    if (!forbiddenWords || forbiddenWords.length === 0 || !safeContent) {
-      return safeContent
-    }
-    
-    let result = safeContent
-    for (const wordObj of forbiddenWords) {
-      const word = wordObj.word || wordObj
-      if (!word) continue
-      
-      const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const regex = new RegExp(escapedWord, 'g')
-      result = result.replace(regex, `<mark class="${styles.forbiddenWord}">${word}</mark>`)
-    }
-    return result
-  }, [safeContent, forbiddenWords])
-
   const html = useMemo(() => {
-    const contentToProcess = highlightedContent.includes('<mark') 
-      ? highlightedContent 
-      : safeContent
-    const result = marked.parse(contentToProcess, { gfm: true })
+    const result = marked.parse(safeContent, { gfm: true })
     const raw = typeof result === 'string' ? result : ''
-    return DOMPurify.sanitize(raw, { ADD_TAGS: ['mark'], ADD_ATTR: ['class'] })
-  }, [safeContent, highlightedContent])
+    const sanitized = DOMPurify.sanitize(raw, { ADD_TAGS: ['mark'], ADD_ATTR: ['class'] })
+    
+    // 在 HTML 层面进行违禁词高亮
+    if (forbiddenWords && forbiddenWords.length > 0) {
+      return highlightForbiddenWordsInHtml(sanitized, forbiddenWords)
+    }
+    return sanitized
+  }, [safeContent, forbiddenWords])
 
   const wordCount = useMemo(() => {
     if (!safeContent) return 0
@@ -99,7 +104,10 @@ export default function Message({ role, content, fileName, time, tool, userInfo,
               )}
             </div>
           ) : (
-            <div className={styles.markdown} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html, { ADD_TAGS: ['mark'], ADD_ATTR: ['class'] }) }} />
+            <div 
+              className={styles.markdown} 
+              dangerouslySetInnerHTML={{ __html: html }} 
+            />
           )}
         </div>
         <div className={styles.meta}>
