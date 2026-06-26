@@ -35,6 +35,8 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./.env:/app/.env
+    ports:
+      - "5172:3001"
 
   nginx:
     image: nginx:alpine

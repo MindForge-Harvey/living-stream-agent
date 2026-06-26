@@ -1,0 +1,11 @@
+# 只部署 App，连接外部 MySQL
+
+services:
+  app:
+    image: living-stream-agent-app
+    container_name: living-stream-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "5172:3001"
