@@ -298,22 +298,28 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
                         except (json.JSONDecodeError, ValueError):
                             pass  # 解析失败则正常输出
                     
-                    filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
-                    accumulated_content += filtered_chunk
+                    # 流式输出原始内容（不进行违禁词替换）
+                    accumulated_content += chunk
                     
                     # 定期保存中间结果（对话历史完整性）
                     if len(accumulated_content) - last_saved_length >= save_interval:
                         _save_intermediate_result(gen_db, dialog_id, request_id, "assistant", accumulated_content, file_metadata)
                         last_saved_length = len(accumulated_content)
                     
-                    yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
 
-                # 保存最终结果
+                # 结束后一次性替换违禁词
                 if accumulated_content:
-                    _save_message(gen_db, dialog_id, request_id, "assistant", accumulated_content, file_metadata)
+                    filtered_content = forbidden_word_service.replace_forbidden_words(accumulated_content, gen_db)
+                    # 如果内容有变化，发送替换后的内容
+                    if filtered_content != accumulated_content:
+                        yield f"data: {json.dumps({'content': '[内容已过滤]', 'replace_all': True, 'final_content': filtered_content}, ensure_ascii=False)}\n\n"
+                    
+                    # 保存最终结果（使用过滤后的内容）
+                    _save_message(gen_db, dialog_id, request_id, "assistant", filtered_content, file_metadata)
                     
                     # 保存脚本版本（使用检测到的意图）
-                    _save_script_version(gen_db, dialog_id, request_id, accumulated_content, detected_intent)
+                    _save_script_version(gen_db, dialog_id, request_id, filtered_content, detected_intent)
 
                 if memory_to_save and user_id:
                     try:
@@ -466,24 +472,69 @@ async def generate_script(request: Request, db: Session = Depends(get_db)):
     """直接生成直播脚本（快捷接口）"""
     form = await request.form()
     message = form.get("message", "")
+    dialog_id = form.get("dialogId")
+    user_id = form.get("userId")
     file = form.get("file")
 
     file_content = None
+    file_name = None
     if file and hasattr(file, 'filename') and file.filename:
-        file_content, _ = await parse_upload_file(file)
+        file_content, file_name = await parse_upload_file(file)
 
     if not message and not file_content:
         raise HTTPException(status_code=400, detail="请提供产品信息或上传相关文件")
 
+    # 加载对话历史
+    history = []
+    if dialog_id:
+        msgs = db.query(DialogMessage).filter(
+            DialogMessage.dialog_id == dialog_id
+        ).order_by(DialogMessage.created_at).all()
+        history = _build_history_with_metadata(msgs[-20:])
+
+    # 加载用户记忆
+    user_memories = []
+    if user_id:
+        user_memories = db.query(UserMemory).filter(
+            UserMemory.user_id == user_id
+        ).order_by(UserMemory.created_at.desc()).all()
+
+    # 生成请求ID
+    request_id = str(uuid.uuid4())[:8]
+    
+    # 构建文件元数据
+    file_metadata = None
+    if file_content:
+        file_metadata = json.dumps({
+            "file_content": file_content,
+            "file_name": file_name
+        }, ensure_ascii=False)
+
     async def generate_stream():
         gen_db = SessionLocal()
         try:
+            accumulated_content = ""
+            
             async for chunk in llm_service.generate_script_stream(
                 user_message=message,
-                file_content=file_content
+                file_content=file_content,
+                history=history,
+                memory_prompt=memory_service.build_memory_prompt(user_memories) if user_memories else ""
             ):
-                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
-                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+                accumulated_content += chunk
+                yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+
+            # 结束后一次性替换违禁词
+            if accumulated_content:
+                filtered_content = forbidden_word_service.replace_forbidden_words(accumulated_content, gen_db)
+                # 如果内容有变化，发送替换后的内容
+                if filtered_content != accumulated_content:
+                    yield f"data: {json.dumps({'content': '[内容已过滤]', 'replace_all': True, 'final_content': filtered_content}, ensure_ascii=False)}\n\n"
+                
+                # 保存消息
+                _save_message(gen_db, dialog_id, request_id, "assistant", filtered_content, file_metadata)
+                # 保存脚本版本
+                _save_script_version(gen_db, dialog_id, request_id, filtered_content, "generate_script")
         finally:
             gen_db.close()
 
@@ -503,16 +554,53 @@ async def score_script(request: Request, db: Session = Depends(get_db)):
     """对直播脚本进行打分"""
     form = await request.form()
     script = form.get("script", "")
+    dialog_id = form.get("dialogId")
+    user_id = form.get("userId")
 
     if not script:
         raise HTTPException(status_code=400, detail="请提供要评分的直播脚本")
 
+    # 加载对话历史
+    history = []
+    if dialog_id:
+        msgs = db.query(DialogMessage).filter(
+            DialogMessage.dialog_id == dialog_id
+        ).order_by(DialogMessage.created_at).all()
+        history = _build_history_with_metadata(msgs[-20:])
+
+    # 加载用户记忆
+    user_memories = []
+    if user_id:
+        user_memories = db.query(UserMemory).filter(
+            UserMemory.user_id == user_id
+        ).order_by(UserMemory.created_at.desc()).all()
+
+    # 生成请求ID
+    request_id = str(uuid.uuid4())[:8]
+
     async def score_stream():
         gen_db = SessionLocal()
         try:
-            async for chunk in llm_service.score_script_stream(script):
-                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
-                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+            accumulated_content = ""
+            
+            async for chunk in llm_service.score_script_stream(
+                script_content=script,
+                history=history,
+                memory_prompt=memory_service.build_memory_prompt(user_memories) if user_memories else ""
+            ):
+                accumulated_content += chunk
+                yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+
+            # 结束后一次性替换违禁词
+            if accumulated_content:
+                filtered_content = forbidden_word_service.replace_forbidden_words(accumulated_content, gen_db)
+                if filtered_content != accumulated_content:
+                    yield f"data: {json.dumps({'content': '[内容已过滤]', 'replace_all': True, 'final_content': filtered_content}, ensure_ascii=False)}\n\n"
+                
+                # 保存消息
+                _save_message(gen_db, dialog_id, request_id, "assistant", filtered_content)
+                # 保存脚本版本
+                _save_script_version(gen_db, dialog_id, request_id, filtered_content, "score_script")
         finally:
             gen_db.close()
 
@@ -532,16 +620,53 @@ async def revise_script(request: Request, db: Session = Depends(get_db)):
     """订正直播脚本"""
     form = await request.form()
     script = form.get("script", "")
+    dialog_id = form.get("dialogId")
+    user_id = form.get("userId")
 
     if not script:
         raise HTTPException(status_code=400, detail="请提供要订正的直播脚本")
 
+    # 加载对话历史
+    history = []
+    if dialog_id:
+        msgs = db.query(DialogMessage).filter(
+            DialogMessage.dialog_id == dialog_id
+        ).order_by(DialogMessage.created_at).all()
+        history = _build_history_with_metadata(msgs[-20:])
+
+    # 加载用户记忆
+    user_memories = []
+    if user_id:
+        user_memories = db.query(UserMemory).filter(
+            UserMemory.user_id == user_id
+        ).order_by(UserMemory.created_at.desc()).all()
+
+    # 生成请求ID
+    request_id = str(uuid.uuid4())[:8]
+
     async def revise_stream():
         gen_db = SessionLocal()
         try:
-            async for chunk in llm_service.revise_script_stream(script):
-                filtered_chunk = forbidden_word_service.replace_forbidden_words(chunk, gen_db)
-                yield f"data: {json.dumps({'content': filtered_chunk}, ensure_ascii=False)}\n\n"
+            accumulated_content = ""
+            
+            async for chunk in llm_service.revise_script_stream(
+                script_content=script,
+                history=history,
+                memory_prompt=memory_service.build_memory_prompt(user_memories) if user_memories else ""
+            ):
+                accumulated_content += chunk
+                yield f"data: {json.dumps({'content': chunk}, ensure_ascii=False)}\n\n"
+
+            # 结束后一次性替换违禁词
+            if accumulated_content:
+                filtered_content = forbidden_word_service.replace_forbidden_words(accumulated_content, gen_db)
+                if filtered_content != accumulated_content:
+                    yield f"data: {json.dumps({'content': '[内容已过滤]', 'replace_all': True, 'final_content': filtered_content}, ensure_ascii=False)}\n\n"
+                
+                # 保存消息
+                _save_message(gen_db, dialog_id, request_id, "assistant", filtered_content)
+                # 保存脚本版本
+                _save_script_version(gen_db, dialog_id, request_id, filtered_content, "revise_script")
         finally:
             gen_db.close()
 
