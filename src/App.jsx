@@ -363,15 +363,17 @@ export default function App({ userInfo }) {
     if (lastUserIdx < 0) return
 
     const lastUserMsg = msgs[lastUserIdx]
-    // 直接截取消息，然后立即发送（使用 ref 获取最新状态）
-    setMessages(msgs.slice(0, lastUserIdx))
-    // 使用 setTimeout 确保状态更新后再发送
-    setTimeout(() => {
+    // 截取消息到最后一条用户消息之前
+    const newMessages = msgs.slice(0, lastUserIdx)
+    setMessages(newMessages)
+    
+    // 使用 requestAnimationFrame 确保状态更新后再发送
+    requestAnimationFrame(() => {
       const dialog = currentDialogRef.current
       if (dialog) {
         sendMessage(lastUserMsg.content)
       }
-    }, 100)
+    })
   }, [isTyping, sendMessage])
 
   const handleTemplateSelect = useCallback((template) => {

@@ -65,7 +65,11 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
 
         try {
           const data = JSON.parse(jsonStr)
-          if (data.content !== undefined) {
+          if (data.replace_all && data.final_content) {
+            // 替换整个内容（违禁词过滤后）
+            finalContent = data.final_content
+            if (onChunk) onChunk(finalContent)
+          } else if (data.content !== undefined) {
             finalContent += data.content
             if (onChunk) onChunk(finalContent)
           }
@@ -82,7 +86,11 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
         if (jsonStr) {
           try {
             const data = JSON.parse(jsonStr)
-            if (data.content !== undefined) {
+            if (data.replace_all && data.final_content) {
+              // 替换整个内容（违禁词过滤后）
+              finalContent = data.final_content
+              if (onChunk) onChunk(finalContent)
+            } else if (data.content !== undefined) {
               finalContent += data.content
               if (onChunk) onChunk(finalContent)
             }
