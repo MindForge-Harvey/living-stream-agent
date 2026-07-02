@@ -22,13 +22,29 @@ from app.services.memory_service import memory_service, MEMORY_EXTRACT_PROMPT
 logger = logging.getLogger(__name__)
 
 
+# 打分提示缓存
+_scoring_prompt_cache = None
+_scoring_prompt_cache_time = 0
+_scoring_prompt_cache_ttl = 300  # 5分钟缓存
+
 def get_scoring_prompt():
-    """从数据库获取打分提示模板，如果没有则使用默认值"""
+    """从数据库获取打分提示模板，如果没有则使用默认值（带缓存）"""
+    global _scoring_prompt_cache, _scoring_prompt_cache_time
+    
+    import time
+    current_time = time.time()
+    
+    # 检查缓存是否有效
+    if _scoring_prompt_cache is not None and current_time - _scoring_prompt_cache_time <= _scoring_prompt_cache_ttl:
+        return _scoring_prompt_cache
+    
     db = SessionLocal()
     try:
         from app.models.models import ScoringConfig
         config = db.query(ScoringConfig).filter(ScoringConfig.is_default == True).first()
         if config and config.prompt_template:
+            _scoring_prompt_cache = config.prompt_template
+            _scoring_prompt_cache_time = current_time
             return config.prompt_template
     except Exception as e:
         logger.warning(f"获取打分配置失败: {e}")
@@ -36,6 +52,8 @@ def get_scoring_prompt():
         db.close()
     
     # 返回默认值
+    _scoring_prompt_cache = SCRIPT_SCORING_PROMPT
+    _scoring_prompt_cache_time = current_time
     return SCRIPT_SCORING_PROMPT
 
 # System Prompts

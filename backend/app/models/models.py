@@ -56,7 +56,7 @@ class DialogMessage(Base):
     __tablename__ = "dialog_messages"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    dialog_id = Column(String(50), ForeignKey("dialogs.id"))
+    dialog_id = Column(String(50), ForeignKey("dialogs.id"), index=True)
     request_id = Column(String(50), index=True)
     role = Column(String(20))
     content = Column(Text)
