@@ -3,10 +3,11 @@
 提供 /chat/api/templates 端点
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy import or_
 
 from app.core.database import get_db
 from app.models.models import ScriptTemplate
@@ -106,10 +107,22 @@ async def get_templates(
 async def get_public_templates(
     category: Optional[str] = None,
     product_type: Optional[str] = None,
+    user_id: Optional[str] = Query(None, description="用户ID，传入则同时返回该用户的私有模板"),
     db: Session = Depends(get_db)
 ):
-    """获取公开模板列表（无需认证）"""
+    """获取公开模板列表（无需认证）
+    
+    - 不传 user_id：只返回全局模板（user_id IS NULL）
+    - 传 user_id：返回全局模板 + 该用户的私有模板
+    """
     query = db.query(ScriptTemplate).filter(ScriptTemplate.is_active == True)
+    
+    if user_id:
+        query = query.filter(
+            or_(ScriptTemplate.user_id.is_(None), ScriptTemplate.user_id == user_id)
+        )
+    else:
+        query = query.filter(ScriptTemplate.user_id.is_(None))
     
     if category:
         query = query.filter(ScriptTemplate.category == category)
@@ -124,7 +137,9 @@ async def get_public_templates(
         "category": t.category,
         "product_type": t.product_type,
         "template_content": t.template_content,
-        "description": t.description
+        "description": t.description,
+        "user_id": t.user_id,
+        "is_mine": bool(t.user_id) and t.user_id == user_id if user_id else False
     } for t in templates]
 
 
@@ -240,3 +255,106 @@ async def init_preset_templates(
     db.commit()
     
     return {"message": f"已初始化 {created_count} 个预置模板", "created": created_count}
+
+
+# ===== 用户级模板接口（无需管理员认证，通过 user_id 校验归属） =====
+
+class UserTemplateCreate(BaseModel):
+    name: str
+    product_type: Optional[str] = None
+    template_content: str
+    description: Optional[str] = None
+
+
+class UserTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    product_type: Optional[str] = None
+    template_content: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.post("/my")
+async def create_user_template(
+    data: UserTemplateCreate,
+    user_id: str = Query(..., description="用户ID"),
+    db: Session = Depends(get_db)
+):
+    """用户创建自己的私有模板"""
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id 不能为空")
+    template = ScriptTemplate(
+        name=data.name,
+        category="custom",
+        product_type=data.product_type,
+        template_content=data.template_content,
+        description=data.description,
+        user_id=user_id
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return {
+        "id": template.id,
+        "name": template.name,
+        "category": template.category,
+        "product_type": template.product_type,
+        "template_content": template.template_content,
+        "description": template.description,
+        "user_id": template.user_id,
+        "is_mine": True
+    }
+
+
+@router.put("/my/{template_id}")
+async def update_user_template(
+    template_id: int,
+    data: UserTemplateUpdate,
+    user_id: str = Query(..., description="用户ID"),
+    db: Session = Depends(get_db)
+):
+    """用户更新自己的私有模板"""
+    template = db.query(ScriptTemplate).filter(ScriptTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    if template.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权修改此模板")
+    
+    if data.name is not None:
+        template.name = data.name
+    if data.product_type is not None:
+        template.product_type = data.product_type
+    if data.template_content is not None:
+        template.template_content = data.template_content
+    if data.description is not None:
+        template.description = data.description
+    
+    db.commit()
+    db.refresh(template)
+    return {
+        "id": template.id,
+        "name": template.name,
+        "category": template.category,
+        "product_type": template.product_type,
+        "template_content": template.template_content,
+        "description": template.description,
+        "user_id": template.user_id,
+        "is_mine": True
+    }
+
+
+@router.delete("/my/{template_id}")
+async def delete_user_template(
+    template_id: int,
+    user_id: str = Query(..., description="用户ID"),
+    db: Session = Depends(get_db)
+):
+    """用户删除自己的私有模板"""
+    template = db.query(ScriptTemplate).filter(ScriptTemplate.id == template_id).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    if template.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权删除此模板")
+    
+    db.delete(template)
+    db.commit()
+    return {"message": "模板已删除"}

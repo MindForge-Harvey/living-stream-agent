@@ -129,6 +129,7 @@ class ScriptTemplate(Base):
     template_content = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
+    user_id = Column(String(100), nullable=True, index=True)  # NULL=全局(管理员创建), 有值=用户私有
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
