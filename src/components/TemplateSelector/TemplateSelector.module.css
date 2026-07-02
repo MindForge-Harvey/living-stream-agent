@@ -57,6 +57,34 @@
   gap: 12px;
 }
 
+.tabFilter {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #f3f4f6;
+}
+
+.tabBtn {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+}
+
+.tabBtn:hover {
+  color: #2563eb;
+}
+
+.tabBtn.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+}
+
 .typeFilter {
   display: flex;
   gap: 8px;
@@ -277,6 +305,21 @@
 
 .editBtn:hover {
   background: #e5e7eb;
+}
+
+.deleteBtn {
+  padding: 8px 16px;
+  background: #fef2f2;
+  border: none;
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.deleteBtn:hover {
+  background: #fee2e2;
 }
 
 .detailContent {

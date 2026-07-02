@@ -154,11 +154,12 @@ export async function fetchForbiddenWords() {
 }
 
 // 脚本模板相关 API
-export async function fetchTemplates(category = null, productType = null) {
+export async function fetchTemplates(category = null, productType = null, userId = null) {
   let url = '/chat/api/templates/public'
   const params = new URLSearchParams()
   if (category) params.append('category', category)
   if (productType) params.append('product_type', productType)
+  if (userId) params.append('user_id', userId)
   if (params.toString()) url += '?' + params.toString()
   
   const res = await fetch(url)
@@ -172,6 +173,39 @@ export async function fetchTemplateById(templateId) {
   return res.json()
 }
 
+// 用户级模板（无需管理员认证）
+export async function createUserTemplate(data, userId) {
+  const params = new URLSearchParams({ user_id: userId })
+  const res = await fetch(`/chat/api/templates/my?${params}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('创建模板失败')
+  return res.json()
+}
+
+export async function updateUserTemplate(templateId, data, userId) {
+  const params = new URLSearchParams({ user_id: userId })
+  const res = await fetch(`/chat/api/templates/my/${templateId}?${params}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  })
+  if (!res.ok) throw new Error('更新模板失败')
+  return res.json()
+}
+
+export async function deleteUserTemplate(templateId, userId) {
+  const params = new URLSearchParams({ user_id: userId })
+  const res = await fetch(`/chat/api/templates/my/${templateId}?${params}`, {
+    method: 'DELETE'
+  })
+  if (!res.ok) throw new Error('删除模板失败')
+  return res.json()
+}
+
+// 管理员级模板（需管理员认证）
 export async function createTemplate(data) {
   const token = localStorage.getItem('adminToken')
   const res = await fetch('/chat/api/templates', {

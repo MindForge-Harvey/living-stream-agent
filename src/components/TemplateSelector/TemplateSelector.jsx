@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchTemplates, createTemplate, updateTemplate } from '../../api/index'
+import { fetchTemplates, createUserTemplate, updateUserTemplate, deleteUserTemplate } from '../../api/index'
 import { showToast } from '../Toast/Toast'
 import styles from './TemplateSelector.module.css'
 
@@ -10,6 +10,7 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [view, setView] = useState('list') // list, detail, create, edit
   const [selectedTemplate, setSelectedTemplate] = useState(null)
+  const [tabFilter, setTabFilter] = useState('all') // all, mine, system
   const [formData, setFormData] = useState({
     name: '',
     product_type: '',
@@ -20,12 +21,12 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
 
   useEffect(() => {
     loadTemplates()
-  }, [])
+  }, [userId])
 
   const loadTemplates = async () => {
     try {
       setLoading(true)
-      const data = await fetchTemplates()
+      const data = await fetchTemplates(null, null, userId)
       setTemplates(data || [])
     } catch (err) {
       console.error('加载模板失败:', err)
@@ -37,6 +38,8 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
   const productTypes = [...new Set(templates.map(t => t.product_type).filter(Boolean))]
 
   const filteredTemplates = templates.filter(t => {
+    if (tabFilter === 'mine' && !t.is_mine) return false
+    if (tabFilter === 'system' && t.is_mine) return false
     if (selectedType && t.product_type !== selectedType) return false
     if (searchTerm && !t.name.includes(searchTerm) && !t.description?.includes(searchTerm)) return false
     return true
@@ -81,13 +84,12 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
     setSaving(true)
     try {
       if (view === 'create') {
-        await createTemplate({
-          ...formData,
-          category: 'custom'
-        })
+        await createUserTemplate({
+          ...formData
+        }, userId)
         showToast('模板创建成功', 'success')
       } else {
-        await updateTemplate(selectedTemplate.id, formData)
+        await updateUserTemplate(selectedTemplate.id, formData, userId)
         showToast('模板更新成功', 'success')
       }
       await loadTemplates()
@@ -99,6 +101,18 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
     }
   }
 
+  const handleDelete = async (template) => {
+    if (!confirm('确定删除此模板？')) return
+    try {
+      await deleteUserTemplate(template.id, userId)
+      showToast('模板已删除', 'success')
+      await loadTemplates()
+      setView('list')
+    } catch (err) {
+      showToast('删除失败: ' + err.message, 'error')
+    }
+  }
+
   const handleUseTemplate = (template) => {
     onSelect(template)
     onClose()
@@ -107,12 +121,32 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
   const renderListView = () => (
     <>
       <div className={styles.filters}>
+        <div className={styles.tabFilter}>
+          <button
+            className={`${styles.tabBtn} ${tabFilter === 'all' ? styles.active : ''}`}
+            onClick={() => setTabFilter('all')}
+          >
+            全部
+          </button>
+          <button
+            className={`${styles.tabBtn} ${tabFilter === 'system' ? styles.active : ''}`}
+            onClick={() => setTabFilter('system')}
+          >
+            系统模板
+          </button>
+          <button
+            className={`${styles.tabBtn} ${tabFilter === 'mine' ? styles.active : ''}`}
+            onClick={() => setTabFilter('mine')}
+          >
+            我的模板
+          </button>
+        </div>
         <div className={styles.typeFilter}>
           <button
             className={`${styles.typeBtn} ${!selectedType ? styles.active : ''}`}
             onClick={() => setSelectedType(null)}
           >
-            全部
+            全部类型
           </button>
           {productTypes.map(type => (
             <button
@@ -133,7 +167,7 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
             onChange={e => setSearchTerm(e.target.value)}
           />
           <button className={styles.createBtn} onClick={handleCreate}>
-            + 新建模板
+            + 新建我的模板
           </button>
         </div>
       </div>
@@ -142,7 +176,9 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
         {loading ? (
           <div className={styles.loading}>加载中...</div>
         ) : filteredTemplates.length === 0 ? (
-          <div className={styles.empty}>暂无模板</div>
+          <div className={styles.empty}>
+            {tabFilter === 'mine' ? '你还没有自己的模板，点击「新建我的模板」创建吧' : '暂无模板'}
+          </div>
         ) : (
           <div className={styles.grid}>
             {filteredTemplates.map(template => (
@@ -151,8 +187,8 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
                 className={styles.card}
               >
                 <div className={styles.cardHeader}>
-                  <span className={`${styles.badge} ${template.category === 'preset' ? styles.preset : styles.custom}`}>
-                    {template.category === 'preset' ? '系统' : '自定义'}
+                  <span className={`${styles.badge} ${template.is_mine ? styles.custom : styles.preset}`}>
+                    {template.is_mine ? '我的' : '系统'}
                   </span>
                   {template.product_type && (
                     <span className={styles.typeTag}>{template.product_type}</span>
@@ -181,10 +217,15 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
       <div className={styles.detailHeader}>
         <button className={styles.backBtn} onClick={() => setView('list')}>← 返回</button>
         <div className={styles.detailActions}>
-          {selectedTemplate.category !== 'preset' && (
-            <button className={styles.editBtn} onClick={() => handleEdit(selectedTemplate)}>
-              编辑
-            </button>
+          {selectedTemplate.is_mine && (
+            <>
+              <button className={styles.editBtn} onClick={() => handleEdit(selectedTemplate)}>
+                编辑
+              </button>
+              <button className={styles.deleteBtn} onClick={() => handleDelete(selectedTemplate)}>
+                删除
+              </button>
+            </>
           )}
           <button className={styles.useBtn} onClick={() => handleUseTemplate(selectedTemplate)}>
             使用此模板
@@ -193,8 +234,8 @@ export default function TemplateSelector({ onSelect, onClose, userId }) {
       </div>
       <div className={styles.detailContent}>
         <div className={styles.detailInfo}>
-          <span className={`${styles.badge} ${selectedTemplate.category === 'preset' ? styles.preset : styles.custom}`}>
-            {selectedTemplate.category === 'preset' ? '系统模板' : '自定义模板'}
+          <span className={`${styles.badge} ${selectedTemplate.is_mine ? styles.custom : styles.preset}`}>
+            {selectedTemplate.is_mine ? '我的模板' : '系统模板'}
           </span>
           {selectedTemplate.product_type && (
             <span className={styles.typeTag}>{selectedTemplate.product_type}</span>
