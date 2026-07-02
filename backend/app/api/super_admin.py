@@ -33,6 +33,10 @@ class UpdateAdminRequest(BaseModel):
     is_active: Optional[bool] = None
 
 
+class BindUserIdRequest(BaseModel):
+    bound_user_id: Optional[str] = None
+
+
 class ResetPasswordRequest(BaseModel):
     new_password: str
 
@@ -97,6 +101,7 @@ async def list_admins(current_admin: Admin = Depends(get_current_super_admin), d
             "username": admin.username,
             "is_active": admin.is_active,
             "is_superadmin": admin.is_superadmin,
+            "bound_user_id": admin.bound_user_id,
             "created_at": admin.created_at.strftime("%Y-%m-%d %H:%M:%S") if admin.created_at else ""
         })
     return result
@@ -124,6 +129,7 @@ async def create_admin(req: CreateAdminRequest, current_admin: Admin = Depends(g
         "username": new_admin.username,
         "is_active": new_admin.is_active,
         "is_superadmin": new_admin.is_superadmin,
+        "bound_user_id": new_admin.bound_user_id,
         "created_at": new_admin.created_at.strftime("%Y-%m-%d %H:%M:%S") if new_admin.created_at else ""
     }
 
@@ -155,6 +161,7 @@ async def update_admin(admin_id: int, req: UpdateAdminRequest, current_admin: Ad
         "username": admin.username,
         "is_active": admin.is_active,
         "is_superadmin": admin.is_superadmin,
+        "bound_user_id": admin.bound_user_id,
         "created_at": admin.created_at.strftime("%Y-%m-%d %H:%M:%S") if admin.created_at else ""
     }
 
@@ -189,3 +196,40 @@ async def reset_password(admin_id: int, req: ResetPasswordRequest, current_admin
     db.commit()
 
     return {"message": "密码已重置"}
+
+
+@router.put("/admins/{admin_id}/bind-user")
+async def bind_user_id(admin_id: int, req: BindUserIdRequest, current_admin: Admin = Depends(get_current_super_admin), db: Session = Depends(get_db)):
+    """给管理员绑定/解绑平台用户ID
+    
+    - 传入 bound_user_id：绑定（若已被其他管理员绑定则报错）
+    - 传入 null 或空字符串：解绑
+    """
+    admin = db.query(Admin).filter(Admin.id == admin_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="管理员不存在")
+
+    if admin.is_superadmin:
+        raise HTTPException(status_code=400, detail="不能给超级管理员绑定用户身份")
+
+    new_uid = (req.bound_user_id or "").strip() or None
+
+    if new_uid:
+        # 检查是否已被其他管理员绑定
+        existing = db.query(Admin).filter(
+            Admin.bound_user_id == new_uid,
+            Admin.id != admin_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail=f"该用户ID已被管理员「{existing.username}」绑定")
+
+    admin.bound_user_id = new_uid
+    db.commit()
+    db.refresh(admin)
+
+    return {
+        "id": admin.id,
+        "username": admin.username,
+        "bound_user_id": admin.bound_user_id,
+        "message": f"已绑定用户ID：{new_uid}" if new_uid else "已解绑用户ID"
+    }

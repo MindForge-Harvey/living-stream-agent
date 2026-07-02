@@ -21,6 +21,7 @@ class Admin(Base):
     hashed_password = Column(String(255))
     is_active = Column(Boolean, default=True)
     is_superadmin = Column(Boolean, default=False)
+    bound_user_id = Column(String(100), nullable=True, index=True)  # 绑定的平台用户ID，用于免密登录后台
     created_at = Column(DateTime, default=utc_now)
 
 

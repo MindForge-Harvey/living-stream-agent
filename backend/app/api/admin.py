@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -69,3 +69,31 @@ async def change_password(req: ChangePasswordRequest, current_admin: Admin = Dep
     current_admin.hashed_password = get_password_hash(req.new_password)
     db.commit()
     return {"message": "密码修改成功"}
+
+
+@router.get("/auth-by-user")
+async def auth_by_user_id(
+    user_id: str = Query(..., description="平台用户ID"),
+    db: Session = Depends(get_db)
+):
+    """根据绑定的 userId 免密登录管理员后台
+    
+    超管在后台给管理员绑定了 userId 后，平台用户点击「后台管理」时
+    调用此接口，若 userId 命中则直接签发 admin token，无需再次登录。
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id 不能为空")
+    
+    admin = db.query(Admin).filter(Admin.bound_user_id == user_id).first()
+    if not admin:
+        raise HTTPException(status_code=404, detail="该用户未绑定管理员账号")
+    if not admin.is_active:
+        raise HTTPException(status_code=403, detail="管理员账号已被禁用")
+    
+    token = create_access_token(data={"sub": f"admin:{admin.id}"})
+    return {
+        "success": True,
+        "token": token,
+        "username": admin.username,
+        "is_superadmin": admin.is_superadmin
+    }
