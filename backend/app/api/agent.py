@@ -33,34 +33,50 @@ async def parse_upload_file(file: UploadFile) -> tuple[str, str]:
     if not file:
         return None, None
 
+    # 获取文件名，确保不为 None
+    filename = file.filename or "unknown"
+    
     try:
         content = await file.read()
-        filename = file.filename.lower()
+        filename_lower = filename.lower()
 
-        if filename.endswith('.txt'):
-            text = content.decode('utf-8')
-            return _truncate_content(text), file.filename
+        if filename_lower.endswith('.txt'):
+            try:
+                text = content.decode('utf-8')
+            except UnicodeDecodeError:
+                # 尝试其他编码
+                try:
+                    text = content.decode('gbk')
+                except UnicodeDecodeError:
+                    text = content.decode('latin-1')
+            return _truncate_content(text), filename
 
-        suffix = os.path.splitext(filename)[1]
+        suffix = os.path.splitext(filename_lower)[1]
+        if not suffix:
+            suffix = ".tmp"
+            
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
 
         try:
             # Excel 文件特殊处理：使用 pandas 读取并处理合并单元格
-            if filename.endswith(('.xlsx', '.xls')):
+            if filename_lower.endswith(('.xlsx', '.xls')):
                 result = _parse_excel_with_merged_cells(tmp_path)
             else:
                 result = markitdown_converter.convert(tmp_path)
                 result = result.text_content
             
-            return _truncate_content(result), file.filename
+            return _truncate_content(result), filename
         finally:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass  # 临时文件删除失败不影响主流程
 
     except Exception as e:
         logger.error(f"文件解析失败: {e}")
-        return f"[文件解析失败: {str(e)}]", file.filename if file else None
+        return f"[文件解析失败: {str(e)}]", filename
 
 
 # 文件内容最大字符数（约100k）
@@ -400,18 +416,18 @@ def _save_script_version(db: Session, dialog_id: str, request_id: str, content: 
     
     # 只保存直播脚本相关的版本，过滤掉普通对话
     script_intents = ["generate_script", "score_script", "revise_script", "analyze_script"]
-    if intent and not any(i in intent for i in script_intents):
+    if intent and intent not in script_intents:
         return  # 非脚本相关意图，不保存版本
     
     try:
         # 根据意图判断版本类型
         version_type = "generated"
         if intent:
-            if "score" in intent:
+            if intent == "score_script":
                 version_type = "scored"
-            elif "revise" in intent:
+            elif intent == "revise_script":
                 version_type = "revised"
-            elif "analyze" in intent:
+            elif intent == "analyze_script":
                 version_type = "analyzed"
         
         version = ScriptVersion(
