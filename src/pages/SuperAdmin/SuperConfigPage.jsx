@@ -8,10 +8,12 @@ export default function SuperConfigPage() {
   const [error, setError] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showResetModal, setShowResetModal] = useState(false)
+  const [showBindModal, setShowBindModal] = useState(false)
   const [selectedAdmin, setSelectedAdmin] = useState(null)
   const [newUsername, setNewUsername] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [resetPassword, setResetPassword] = useState('')
+  const [bindUserId, setBindUserId] = useState('')
   const navigate = useNavigate()
 
   const token = localStorage.getItem('superAdminToken')
@@ -150,6 +152,35 @@ export default function SuperConfigPage() {
     navigate('/superlogin')
   }
 
+  const handleBindUser = async (e) => {
+    e.preventDefault()
+    if (!selectedAdmin) return
+
+    try {
+      const res = await fetch(`/api/super-admin/admins/${selectedAdmin.id}/bind-user`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ bound_user_id: bindUserId.trim() || null })
+      })
+
+      const data = await res.json()
+      if (res.ok) {
+        setShowBindModal(false)
+        setSelectedAdmin(null)
+        setBindUserId('')
+        setError('')
+        fetchAdmins()
+      } else {
+        setError(data.detail || '绑定失败')
+      }
+    } catch (err) {
+      setError('网络错误: ' + err.message)
+    }
+  }
+
   if (loading) {
     return (
       <div className={styles.container}>
@@ -183,6 +214,7 @@ export default function SuperConfigPage() {
                 <th>用户名</th>
                 <th>状态</th>
                 <th>类型</th>
+                <th>绑定用户ID</th>
                 <th>创建时间</th>
                 <th>操作</th>
               </tr>
@@ -202,6 +234,13 @@ export default function SuperConfigPage() {
                       {admin.is_superadmin ? '超级管理员' : '普通管理员'}
                     </span>
                   </td>
+                  <td>
+                    {admin.bound_user_id ? (
+                      <span className={styles.boundUser}>{admin.bound_user_id}</span>
+                    ) : (
+                      <span className={styles.unbound}>未绑定</span>
+                    )}
+                  </td>
                   <td>{admin.created_at}</td>
                   <td>
                     {!admin.is_superadmin && (
@@ -211,6 +250,16 @@ export default function SuperConfigPage() {
                           onClick={() => handleToggleActive(admin.id, admin.is_active)}
                         >
                           {admin.is_active ? '禁用' : '启用'}
+                        </button>
+                        <button
+                          className={styles.actionBtn}
+                          onClick={() => {
+                            setSelectedAdmin(admin)
+                            setBindUserId(admin.bound_user_id || '')
+                            setShowBindModal(true)
+                          }}
+                        >
+                          {admin.bound_user_id ? '修改绑定' : '绑定用户'}
                         </button>
                         <button
                           className={styles.actionBtn}
@@ -292,6 +341,31 @@ export default function SuperConfigPage() {
               <div className={styles.modalActions}>
                 <button type="button" className={styles.cancelBtn} onClick={() => setShowResetModal(false)}>取消</button>
                 <button type="submit" className={styles.confirmBtn}>确认重置</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showBindModal && selectedAdmin && (
+        <div className={styles.modal}>
+          <div className={styles.modalContent}>
+            <h3 className={styles.modalTitle}>绑定用户身份 - {selectedAdmin.username}</h3>
+            <form onSubmit={handleBindUser}>
+              <div className={styles.field}>
+                <label className={styles.label}>平台用户ID（userId）</label>
+                <input
+                  className={styles.input}
+                  type="text"
+                  value={bindUserId}
+                  onChange={(e) => setBindUserId(e.target.value)}
+                  placeholder="输入要绑定的平台用户ID，留空则解绑"
+                />
+                <p className={styles.fieldHint}>绑定后，该用户在对话界面点击「后台管理」可直接进入管理后台，无需登录</p>
+              </div>
+              <div className={styles.modalActions}>
+                <button type="button" className={styles.cancelBtn} onClick={() => setShowBindModal(false)}>取消</button>
+                <button type="submit" className={styles.confirmBtn}>确认绑定</button>
               </div>
             </form>
           </div>

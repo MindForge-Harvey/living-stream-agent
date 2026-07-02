@@ -4,10 +4,11 @@ import { exportScript } from '../../api/index'
 import { showToast } from '../Toast/Toast'
 import styles from './ChatHeader.module.css'
 
-export default function ChatHeader({ tool, onBack, onClear, onMemory, onVersionHistory, onTemplateSelect, dialogId }) {
+export default function ChatHeader({ tool, onBack, onClear, onMemory, onVersionHistory, onTemplateSelect, dialogId, userId }) {
   const navigate = useNavigate()
   const [exporting, setExporting] = useState(false)
   const [showExportMenu, setShowExportMenu] = useState(false)
+  const [enteringAdmin, setEnteringAdmin] = useState(false)
 
   const handleExport = async (format) => {
     if (!dialogId) {
@@ -34,6 +35,30 @@ export default function ChatHeader({ tool, onBack, onClear, onMemory, onVersionH
     } finally {
       setExporting(false)
     }
+  }
+
+  const handleAdminEntry = async () => {
+    // 优先用 userId 免密登录
+    if (userId) {
+      setEnteringAdmin(true)
+      try {
+        const res = await fetch(`/chat/api/admin/auth-by-user?user_id=${encodeURIComponent(userId)}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.success && data.token) {
+            localStorage.setItem('adminToken', data.token)
+            navigate('/chat/config')
+            return
+          }
+        }
+      } catch {
+        // 静默失败，走下面的正常登录流程
+      } finally {
+        setEnteringAdmin(false)
+      }
+    }
+    // userId 未绑定或请求失败，跳登录页
+    navigate('/chat/login')
   }
 
   return (
@@ -107,7 +132,7 @@ export default function ChatHeader({ tool, onBack, onClear, onMemory, onVersionH
           </button>
         )}
         {tool && <button onClick={onClear}>清空</button>}
-        <button className={styles.adminBtn} onClick={() => navigate('/chat/login')} title="后台管理">
+        <button className={styles.adminBtn} onClick={handleAdminEntry} title="后台管理" disabled={enteringAdmin}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="3" />
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />

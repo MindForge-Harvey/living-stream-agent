@@ -414,6 +414,7 @@ ${template.template_content}
           onVersionHistory={() => setVersionHistoryOpen(true)}
           onTemplateSelect={() => setTemplateSelectorOpen(true)}
           dialogId={currentDialog?.id}
+          userId={userId}
         />
         {currentDialog ? (
           <>
