@@ -1,12 +1,3 @@
-# Stage 1: Build React frontend
-FROM node:20-alpine AS frontend-build
-WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm install
-COPY . .
-RUN npm run build
-
-# Stage 2: Python runtime
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -23,9 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY backend/ ./backend/
-
-# Copy frontend build to backend dist folder
-COPY --from=frontend-build /app/dist/ ./dist/
+COPY dist/ ./dist/
 
 # Create init script
 RUN echo '#!/bin/bash\n\
