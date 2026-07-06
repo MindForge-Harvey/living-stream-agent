@@ -11,12 +11,14 @@ from sqlalchemy import func, or_
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
+from app.core.security import get_current_user
 from app.core.time_utils import format_shanghai_iso, format_shanghai_display, shanghai_now
 from app.models.models import Dialog, DialogMessage, ScriptVersion, PlatformUser, utc_now
 from app.api.admin import get_current_admin
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/dialogs", tags=["对话"])
+router = APIRouter(prefix="/conversations", tags=["对话"])
+admin_router = APIRouter(prefix="/admin/conversations", tags=["管理员对话审计"])
 
 
 def generate_dialog_id():
@@ -30,7 +32,7 @@ def generate_request_id():
 
 
 class CreateDialogRequest(BaseModel):
-    userId: str
+    userId: str = ""
     toolId: str = "living-stream-agent"
     toolName: str = "直播话术生成智能体"
     title: str = "新对话"
@@ -43,7 +45,7 @@ class CreateDialogRequest(BaseModel):
 
 class SendMessageRequest(BaseModel):
     dialogId: str
-    userId: str
+    userId: str = ""
     role: str
     content: str
 
@@ -51,13 +53,18 @@ class SendMessageRequest(BaseModel):
 # ==================== 对话基础接口 ====================
 
 @router.post("")
-async def create_dialog(req: CreateDialogRequest, db: Session = Depends(get_db)):
+async def create_dialog(
+    req: CreateDialogRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """创建新对话"""
-    if req.userId:
-        platform_user = db.query(PlatformUser).filter(PlatformUser.platform_user_id == req.userId).first()
+    user_id = current_user["user_id"]
+    if user_id:
+        platform_user = db.query(PlatformUser).filter(PlatformUser.platform_user_id == user_id).first()
         if not platform_user:
             platform_user = PlatformUser(
-                platform_user_id=req.userId,
+                platform_user_id=user_id,
                 lan_name=req.lanName,
                 region_name=req.regionName,
                 staff_code=req.staffCode,
@@ -81,7 +88,7 @@ async def create_dialog(req: CreateDialogRequest, db: Session = Depends(get_db))
     dialog_id = generate_dialog_id()
     dialog = Dialog(
         id=dialog_id,
-        user_id=req.userId,
+        user_id=user_id,
         tool_id=req.toolId,
         tool_name=req.toolName,
         title=req.title,
@@ -101,11 +108,15 @@ async def create_dialog(req: CreateDialogRequest, db: Session = Depends(get_db))
 
 
 @router.get("")
-async def list_dialogs(userId: str = None, page: int = 1, pageSize: int = 50, db: Session = Depends(get_db)):
+async def list_dialogs(
+    page: int = 1,
+    pageSize: int = 50,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """获取对话列表（支持分页）"""
-    if not userId:
-        return {"items": [], "total": 0, "page": page, "pageSize": pageSize, "totalPages": 0}
-    query = db.query(Dialog).filter(Dialog.user_id == userId)
+    user_id = current_user["user_id"]
+    query = db.query(Dialog).filter(Dialog.user_id == user_id)
 
     total = query.count()
     dialogs = query.order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
@@ -132,13 +143,17 @@ async def list_dialogs(userId: str = None, page: int = 1, pageSize: int = 50, db
 
 
 @router.post("/message")
-async def save_message(req: SendMessageRequest, db: Session = Depends(get_db)):
+async def save_message(
+    req: SendMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """保存消息"""
     dialog = db.query(Dialog).filter(Dialog.id == req.dialogId).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
 
-    if req.userId and dialog.user_id != req.userId:
+    if dialog.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权操作此对话")
 
     request_id = generate_request_id()
@@ -229,7 +244,7 @@ def _format_user_stat(row):
     }
 
 
-@router.get("/stats/users")
+@admin_router.get("/stats/users")
 async def get_user_stats(
     keyword: Optional[str] = Query(None, description="搜索关键词（姓名/工号/用户ID）"),
     lanName: Optional[str] = Query(None, description="地市筛选"),
@@ -270,7 +285,7 @@ async def get_user_stats(
     }
 
 
-@router.get("/stats/users/export")
+@admin_router.get("/stats/users/export")
 async def export_user_stats(
     keyword: Optional[str] = Query(None),
     lanName: Optional[str] = Query(None),
@@ -330,7 +345,7 @@ async def export_user_stats(
     )
 
 
-@router.get("/stats/filters")
+@admin_router.get("/stats/filters")
 async def get_stats_filter_options(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
     """获取筛选下拉选项"""
     lan_names = [r[0] for r in db.query(PlatformUser.lan_name).distinct().filter(PlatformUser.lan_name != "").all()]
@@ -343,7 +358,7 @@ async def get_stats_filter_options(db: Session = Depends(get_db), _admin=Depends
     }
 
 
-@router.get("/stats/overview")
+@admin_router.get("/stats/overview")
 async def get_overview_stats(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
     """获取总览统计"""
     total_dialogs = db.query(func.count(Dialog.id)).scalar() or 0
@@ -360,12 +375,16 @@ async def get_overview_stats(db: Session = Depends(get_db), _admin=Depends(get_c
 # ==================== 对话详情接口 ====================
 
 @router.get("/{dialog_id}")
-async def get_dialog(dialog_id: str, userId: str = Query(None, description="用户ID"), db: Session = Depends(get_db)):
+async def get_dialog(
+    dialog_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """获取对话详情"""
     dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if userId and dialog.user_id != userId:
+    if dialog.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权访问此对话")
     return {
         "id": dialog.id,
@@ -380,13 +399,17 @@ async def get_dialog(dialog_id: str, userId: str = Query(None, description="用�
 
 
 @router.delete("/{dialog_id}")
-async def delete_dialog(dialog_id: str, userId: str = Query(..., description="用户ID，必传"), db: Session = Depends(get_db)):
+async def delete_dialog(
+    dialog_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """删除对话"""
     dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
 
-    if dialog.user_id != userId:
+    if dialog.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权删除此对话")
 
     try:
@@ -406,13 +429,77 @@ async def delete_dialog(dialog_id: str, userId: str = Query(..., description="�
 
 
 @router.get("/{dialog_id}/messages")
-async def get_dialog_messages(dialog_id: str, userId: str = Query(None, description="用户ID"), db: Session = Depends(get_db)):
+async def get_dialog_messages(
+    dialog_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """获取对话消息"""
     dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
     if not dialog:
         raise HTTPException(status_code=404, detail="对话不存在")
-    if userId and dialog.user_id != userId:
+    if dialog.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权访问此对话")
+
+    messages = db.query(DialogMessage).filter(
+        DialogMessage.dialog_id == dialog_id
+    ).order_by(DialogMessage.created_at).all()
+
+    return [
+        {
+            "id": m.id,
+            "requestId": m.request_id,
+            "role": m.role,
+            "content": m.content,
+            "createdAt": format_shanghai_iso(m.created_at),
+        }
+        for m in messages
+    ]
+
+
+@admin_router.get("")
+async def admin_list_dialogs(
+    userId: str = Query(..., description="用户ID"),
+    page: int = 1,
+    pageSize: int = 50,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """管理员获取指定用户对话列表。"""
+    query = db.query(Dialog).filter(Dialog.user_id == userId)
+    total = query.count()
+    dialogs = query.order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
+    return {
+        "items": [
+            {
+                "id": d.id,
+                "userId": d.user_id,
+                "toolId": d.tool_id,
+                "toolName": d.tool_name,
+                "title": d.title,
+                "requestCount": d.request_count,
+                "createdAt": format_shanghai_iso(d.created_at),
+                "updatedAt": format_shanghai_iso(d.updated_at),
+            }
+            for d in dialogs
+        ],
+        "total": total,
+        "page": page,
+        "pageSize": pageSize,
+        "totalPages": (total + pageSize - 1) // pageSize,
+    }
+
+
+@admin_router.get("/{dialog_id}/messages")
+async def admin_get_dialog_messages(
+    dialog_id: str,
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """管理员获取对话消息。"""
+    dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
+    if not dialog:
+        raise HTTPException(status_code=404, detail="对话不存在")
 
     messages = db.query(DialogMessage).filter(
         DialogMessage.dialog_id == dialog_id

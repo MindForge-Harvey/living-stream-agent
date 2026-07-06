@@ -62,4 +62,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token 中未包含用户信息",
         )
+    if user_id.startswith("admin:") or user_id.startswith("super_admin:"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="无效的用户 Token",
+        )
     return {"user_id": user_id}

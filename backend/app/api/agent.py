@@ -1,6 +1,6 @@
 """
 直播话术生成智能体路由
-提供 /chat/api/agent 端点
+提供 /chat/api/assistant 端点
 """
 
 import json
@@ -16,14 +16,16 @@ from sqlalchemy.orm import Session
 from markitdown import MarkItDown
 
 from app.core.database import get_db, SessionLocal
+from app.core.security import get_current_user
 from app.services.llm_service import llm_service
 from app.services.forbidden_word_service import forbidden_word_service
 from app.services.memory_service import memory_service
-from app.models.models import DialogMessage, UserMemory, ScriptVersion
+from app.core.time_utils import format_shanghai_display
+from app.models.models import Dialog, DialogMessage, UserMemory, ScriptVersion
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/agent", tags=["直播话术智能体"])
+router = APIRouter(prefix="/assistant", tags=["直播话术智能体"])
 
 markitdown_converter = MarkItDown()
 
@@ -161,8 +163,38 @@ def _build_history_with_metadata(msgs: list) -> list:
     return history
 
 
+def _get_owned_dialog(db: Session, dialog_id: Optional[str], user_id: str) -> Optional[Dialog]:
+    """获取当前用户自己的对话。"""
+    if not dialog_id:
+        return None
+    dialog = db.query(Dialog).filter(Dialog.id == dialog_id).first()
+    if not dialog:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if dialog.user_id != user_id:
+        raise HTTPException(status_code=403, detail="无权访问此对话")
+    return dialog
+
+
+def _load_owned_history(db: Session, dialog_id: Optional[str], user_id: str) -> list:
+    """加载当前用户对话历史。"""
+    _get_owned_dialog(db, dialog_id, user_id)
+    if not dialog_id:
+        return []
+    msgs = db.query(DialogMessage).filter(
+        DialogMessage.dialog_id == dialog_id
+    ).order_by(DialogMessage.created_at).all()
+    return _build_history_with_metadata(msgs[-20:])
+
+
+def _load_user_memories(db: Session, user_id: str) -> list:
+    """加载当前用户记忆。"""
+    return db.query(UserMemory).filter(
+        UserMemory.user_id == user_id
+    ).order_by(UserMemory.created_at.desc()).all()
+
+
 @router.get("/status")
-async def get_status():
+async def get_status(_current_user: dict = Depends(get_current_user)):
     """获取智能体状态"""
     return {
         "available": llm_service.is_available(),
@@ -187,14 +219,18 @@ async def get_status():
 
 
 @router.post("")
-async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
+async def agent_endpoint(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """
     直播话术生成智能体主端点
 
     请求格式：multipart/form-data
     - message: 用户消息（必填）
     - dialogId: 对话ID（可选，用于关联对话历史）
-    - userId: 用户ID（可选）
+    - userId: 已弃用，服务端只使用登录 token 中的用户ID
     - intent: 意图（可选，强制指定意图）
     - file: 上传的文件（可选）
     """
@@ -208,7 +244,7 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
         form = await request.form()
         message = form.get("message", "")
         dialog_id = form.get("dialogId")
-        user_id = form.get("userId")
+        user_id = current_user["user_id"]
         intent = form.get("intent")
         file = form.get("file")
 
@@ -221,20 +257,10 @@ async def agent_endpoint(request: Request, db: Session = Depends(get_db)):
             file_content, file_name = await parse_upload_file(file)
             logger.info(f"已解析文件: {file.filename}")
 
-        history = []
-        if dialog_id:
-            msgs = db.query(DialogMessage).filter(
-                DialogMessage.dialog_id == dialog_id
-            ).order_by(DialogMessage.created_at).all()
-
-            history = _build_history_with_metadata(msgs[-20:])
+        history = _load_owned_history(db, dialog_id, user_id)
 
         # 加载用户记忆
-        user_memories = []
-        if user_id:
-            user_memories = db.query(UserMemory).filter(
-                UserMemory.user_id == user_id
-            ).order_by(UserMemory.created_at.desc()).all()
+        user_memories = _load_user_memories(db, user_id)
 
         # 生成请求ID
         request_id = str(uuid.uuid4())[:8]
@@ -450,8 +476,13 @@ def _save_script_version(db: Session, dialog_id: str, request_id: str, content: 
 
 
 @router.get("/versions/{dialog_id}")
-async def get_script_versions(dialog_id: str, db: Session = Depends(get_db)):
+async def get_script_versions(
+    dialog_id: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """获取对话的脚本版本历史"""
+    _get_owned_dialog(db, dialog_id, current_user["user_id"])
     versions = db.query(ScriptVersion).filter(
         ScriptVersion.dialog_id == dialog_id
     ).order_by(ScriptVersion.created_at).all()
@@ -463,17 +494,21 @@ async def get_script_versions(dialog_id: str, db: Session = Depends(get_db)):
         "version_type": v.version_type,
         "content": v.content,
         "score_data": v.score_data,
-        "created_at": v.created_at.strftime("%Y-%m-%d %H:%M:%S") if v.created_at else ""
+        "created_at": format_shanghai_display(v.created_at),
     } for v in versions]
 
 
 @router.post("/generate")
-async def generate_script(request: Request, db: Session = Depends(get_db)):
+async def generate_script(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """直接生成直播脚本（快捷接口）"""
     form = await request.form()
     message = form.get("message", "")
     dialog_id = form.get("dialogId")
-    user_id = form.get("userId")
+    user_id = current_user["user_id"]
     file = form.get("file")
 
     file_content = None
@@ -485,19 +520,10 @@ async def generate_script(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="请提供产品信息或上传相关文件")
 
     # 加载对话历史
-    history = []
-    if dialog_id:
-        msgs = db.query(DialogMessage).filter(
-            DialogMessage.dialog_id == dialog_id
-        ).order_by(DialogMessage.created_at).all()
-        history = _build_history_with_metadata(msgs[-20:])
+    history = _load_owned_history(db, dialog_id, user_id)
 
     # 加载用户记忆
-    user_memories = []
-    if user_id:
-        user_memories = db.query(UserMemory).filter(
-            UserMemory.user_id == user_id
-        ).order_by(UserMemory.created_at.desc()).all()
+    user_memories = _load_user_memories(db, user_id)
 
     # 生成请求ID
     request_id = str(uuid.uuid4())[:8]
@@ -550,30 +576,25 @@ async def generate_script(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/score")
-async def score_script(request: Request, db: Session = Depends(get_db)):
+async def score_script(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """对直播脚本进行打分"""
     form = await request.form()
     script = form.get("script", "")
     dialog_id = form.get("dialogId")
-    user_id = form.get("userId")
+    user_id = current_user["user_id"]
 
     if not script:
         raise HTTPException(status_code=400, detail="请提供要评分的直播脚本")
 
     # 加载对话历史
-    history = []
-    if dialog_id:
-        msgs = db.query(DialogMessage).filter(
-            DialogMessage.dialog_id == dialog_id
-        ).order_by(DialogMessage.created_at).all()
-        history = _build_history_with_metadata(msgs[-20:])
+    history = _load_owned_history(db, dialog_id, user_id)
 
     # 加载用户记忆
-    user_memories = []
-    if user_id:
-        user_memories = db.query(UserMemory).filter(
-            UserMemory.user_id == user_id
-        ).order_by(UserMemory.created_at.desc()).all()
+    user_memories = _load_user_memories(db, user_id)
 
     # 生成请求ID
     request_id = str(uuid.uuid4())[:8]
@@ -616,30 +637,25 @@ async def score_script(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/revise")
-async def revise_script(request: Request, db: Session = Depends(get_db)):
+async def revise_script(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
     """订正直播脚本"""
     form = await request.form()
     script = form.get("script", "")
     dialog_id = form.get("dialogId")
-    user_id = form.get("userId")
+    user_id = current_user["user_id"]
 
     if not script:
         raise HTTPException(status_code=400, detail="请提供要订正的直播脚本")
 
     # 加载对话历史
-    history = []
-    if dialog_id:
-        msgs = db.query(DialogMessage).filter(
-            DialogMessage.dialog_id == dialog_id
-        ).order_by(DialogMessage.created_at).all()
-        history = _build_history_with_metadata(msgs[-20:])
+    history = _load_owned_history(db, dialog_id, user_id)
 
     # 加载用户记忆
-    user_memories = []
-    if user_id:
-        user_memories = db.query(UserMemory).filter(
-            UserMemory.user_id == user_id
-        ).order_by(UserMemory.created_at.desc()).all()
+    user_memories = _load_user_memories(db, user_id)
 
     # 生成请求ID
     request_id = str(uuid.uuid4())[:8]

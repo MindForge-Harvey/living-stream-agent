@@ -45,7 +45,7 @@ class ForbiddenWordImportItem(BaseModel):
 
 # 用户记忆相关
 class MemoryCreate(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     content: str
 
 

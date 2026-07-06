@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models.models import DialogMessage
+from app.core.security import get_current_user
+from app.models.models import Dialog, DialogMessage
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +27,16 @@ class ExportRequest(BaseModel):
 @router.post("")
 async def export_script(
     data: ExportRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """导出对话中的脚本"""
+    dialog = db.query(Dialog).filter(Dialog.id == data.dialog_id).first()
+    if not dialog:
+        raise HTTPException(status_code=404, detail="对话不存在")
+    if dialog.user_id != current_user["user_id"]:
+        raise HTTPException(status_code=403, detail="无权导出此对话")
+
     # 获取对话的最后一条AI消息
     last_ai_message = db.query(DialogMessage).filter(
         DialogMessage.dialog_id == data.dialog_id,

@@ -10,6 +10,8 @@ from typing import Optional, List
 from sqlalchemy import or_
 
 from app.core.database import get_db
+from app.core.security import get_current_user
+from app.core.time_utils import format_shanghai_display
 from app.models.models import ScriptTemplate
 from app.api.admin import get_current_admin
 
@@ -84,14 +86,14 @@ async def get_templates(
 ):
     """获取模板列表"""
     query = db.query(ScriptTemplate).filter(ScriptTemplate.is_active == True)
-    
+
     if category:
         query = query.filter(ScriptTemplate.category == category)
     if product_type:
         query = query.filter(ScriptTemplate.product_type == product_type)
-    
+
     templates = query.order_by(ScriptTemplate.created_at.desc()).all()
-    
+
     return [{
         "id": t.id,
         "name": t.name,
@@ -99,39 +101,12 @@ async def get_templates(
         "product_type": t.product_type,
         "template_content": t.template_content,
         "description": t.description,
-        "created_at": t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else ""
+        "created_at": format_shanghai_display(t.created_at),
     } for t in templates]
 
 
-@router.get("/public")
-async def get_public_templates(
-    category: Optional[str] = None,
-    product_type: Optional[str] = None,
-    user_id: Optional[str] = Query(None, description="用户ID，传入则同时返回该用户的私有模板"),
-    db: Session = Depends(get_db)
-):
-    """获取公开模板列表（无需认证）
-    
-    - 不传 user_id：只返回全局模板（user_id IS NULL）
-    - 传 user_id：返回全局模板 + 该用户的私有模板
-    """
-    query = db.query(ScriptTemplate).filter(ScriptTemplate.is_active == True)
-    
-    if user_id:
-        query = query.filter(
-            or_(ScriptTemplate.user_id.is_(None), ScriptTemplate.user_id == user_id)
-        )
-    else:
-        query = query.filter(ScriptTemplate.user_id.is_(None))
-    
-    if category:
-        query = query.filter(ScriptTemplate.category == category)
-    if product_type:
-        query = query.filter(ScriptTemplate.product_type == product_type)
-    
-    templates = query.order_by(ScriptTemplate.created_at.desc()).all()
-    
-    return [{
+def _format_public_template(t: ScriptTemplate, user_id: Optional[str] = None) -> dict:
+    return {
         "id": t.id,
         "name": t.name,
         "category": t.category,
@@ -140,7 +115,52 @@ async def get_public_templates(
         "description": t.description,
         "user_id": t.user_id,
         "is_mine": bool(t.user_id) and t.user_id == user_id if user_id else False
-    } for t in templates]
+    }
+
+
+@router.get("/public")
+async def get_public_templates(
+    category: Optional[str] = None,
+    product_type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """获取公开模板列表（无需认证，只返回全局模板）。"""
+    query = db.query(ScriptTemplate).filter(
+        ScriptTemplate.is_active == True,
+        ScriptTemplate.user_id.is_(None),
+    )
+
+    if category:
+        query = query.filter(ScriptTemplate.category == category)
+    if product_type:
+        query = query.filter(ScriptTemplate.product_type == product_type)
+
+    templates = query.order_by(ScriptTemplate.created_at.desc()).all()
+    
+    return [_format_public_template(t) for t in templates]
+
+
+@router.get("/mine")
+async def get_my_templates(
+    category: Optional[str] = None,
+    product_type: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取全局模板和当前用户私有模板。"""
+    user_id = current_user["user_id"]
+    query = db.query(ScriptTemplate).filter(
+        ScriptTemplate.is_active == True,
+        or_(ScriptTemplate.user_id.is_(None), ScriptTemplate.user_id == user_id),
+    )
+    
+    if category:
+        query = query.filter(ScriptTemplate.category == category)
+    if product_type:
+        query = query.filter(ScriptTemplate.product_type == product_type)
+    
+    templates = query.order_by(ScriptTemplate.created_at.desc()).all()
+    return [_format_public_template(t, user_id) for t in templates]
 
 
 @router.post("")
@@ -257,7 +277,7 @@ async def init_preset_templates(
     return {"message": f"已初始化 {created_count} 个预置模板", "created": created_count}
 
 
-# ===== 用户级模板接口（无需管理员认证，通过 user_id 校验归属） =====
+# ===== 用户级模板接口（普通用户认证，通过 token 校验归属） =====
 
 class UserTemplateCreate(BaseModel):
     name: str
@@ -276,12 +296,11 @@ class UserTemplateUpdate(BaseModel):
 @router.post("/my")
 async def create_user_template(
     data: UserTemplateCreate,
-    user_id: str = Query(..., description="用户ID"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """用户创建自己的私有模板"""
-    if not user_id:
-        raise HTTPException(status_code=400, detail="user_id 不能为空")
+    user_id = current_user["user_id"]
     template = ScriptTemplate(
         name=data.name,
         category="custom",
@@ -309,14 +328,14 @@ async def create_user_template(
 async def update_user_template(
     template_id: int,
     data: UserTemplateUpdate,
-    user_id: str = Query(..., description="用户ID"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """用户更新自己的私有模板"""
     template = db.query(ScriptTemplate).filter(ScriptTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="模板不存在")
-    if template.user_id != user_id:
+    if template.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权修改此模板")
     
     if data.name is not None:
@@ -345,14 +364,14 @@ async def update_user_template(
 @router.delete("/my/{template_id}")
 async def delete_user_template(
     template_id: int,
-    user_id: str = Query(..., description="用户ID"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """用户删除自己的私有模板"""
     template = db.query(ScriptTemplate).filter(ScriptTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="模板不存在")
-    if template.user_id != user_id:
+    if template.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权删除此模板")
     
     db.delete(template)

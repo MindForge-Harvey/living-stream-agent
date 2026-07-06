@@ -1,10 +1,11 @@
 import logging
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.core.database import engine, Base
@@ -31,6 +32,9 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # 配置 CORS
@@ -46,6 +50,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/chat/api")
 app.include_router(admin.router, prefix="/chat/api")
 app.include_router(dialogs.router, prefix="/chat/api")
+app.include_router(dialogs.admin_router, prefix="/chat/api")
 app.include_router(agent.router, prefix="/chat/api")
 app.include_router(forbidden_words.router, prefix="/chat")
 app.include_router(memories.router, prefix="/chat/api")
@@ -64,8 +69,6 @@ async def health():
         "version": settings.APP_VERSION,
         "llm": {
             "available": llm_service.is_available(),
-            "base_url": settings.OPENAI_BASE_URL,
-            "model": settings.OPENAI_MODEL,
         },
     }
 
@@ -75,23 +78,25 @@ async def get_config():
     """获取前端配置"""
     return {
         "redirectUrl": settings.REDIRECT_URL,
-        "enableTestPlatform": settings.ENABLE_TEST_PLATFORM,
     }
 
 
 # 静态文件服务（生产环境）
-import os
-# dist 目录在项目根目录下
 dist_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "dist")
 if os.path.exists(dist_path):
     app.mount("/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets")
     app.mount("/chat/assets", StaticFiles(directory=os.path.join(dist_path, "assets")), name="assets_chat")
 
+    @app.get("/chat/login")
+    async def removed_admin_login():
+        """普通管理员登录页已删除。"""
+        raise HTTPException(status_code=404, detail="Not Found")
+
     @app.get("/chat/{full_path:path}")
-    async def serve_spa(full_path: str):
-        """SPA 路由回退"""
+    async def serve_chat_spa(full_path: str):
+        """SPA 路由回退。"""
         if full_path.startswith("api/"):
-            return None
+            raise HTTPException(status_code=404, detail="Not Found")
         file_path = os.path.join(dist_path, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
@@ -99,15 +104,15 @@ if os.path.exists(dist_path):
 
     @app.get("/superlogin")
     async def serve_superlogin():
-        """超级管理员登录页面"""
+        """超级管理员登录页面。"""
         return FileResponse(os.path.join(dist_path, "index.html"))
 
     @app.get("/superconfig")
     async def serve_superconfig():
-        """超级管理员配置页面"""
+        """超级管理员配置页面。"""
         return FileResponse(os.path.join(dist_path, "index.html"))
 
     @app.get("/")
     async def serve_root():
-        """根路径"""
+        """根路径。"""
         return FileResponse(os.path.join(dist_path, "index.html"))
