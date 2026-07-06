@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/forbidden-words", tags=["forbidden-words"])
 async def get_public_forbidden_words(db: Session = Depends(get_db)):
     """获取违禁词列表（公开接口，用于前端过滤）"""
     words = db.query(ForbiddenWord).order_by(ForbiddenWord.created_at.desc()).all()
-    return [{"id": w.id, "word": w.word, "replacement": w.replacement} for w in words]
+    return [{"id": w.id, "word": w.word, "replacement": w.replacement, "level": w.level} for w in words]
 
 
 @router.get("", response_model=List[ForbiddenWordResponse])
@@ -82,6 +82,8 @@ async def update_forbidden_word(
 
     if data.replacement is not None:
         word.replacement = data.replacement
+    if data.level is not None:
+        word.level = data.level or _auto_level(word.word)
 
     db.commit()
     db.refresh(word)
@@ -209,22 +211,4 @@ async def check_text_for_forbidden_words(
     text: str, db: Session = Depends(get_db), _admin=Depends(get_current_admin)
 ):
     """检测文本中的违禁词并返回替换后的文本"""
-    words = db.query(ForbiddenWord).all()
-
-    result_text = text
-    found_words = []
-
-    for word_obj in words:
-        if word_obj.word in result_text:
-            found_words.append({
-                "word": word_obj.word,
-                "replacement": word_obj.replacement,
-            })
-            result_text = result_text.replace(word_obj.word, word_obj.replacement)
-
-    return {
-        "original": text,
-        "processed": result_text,
-        "foundForbiddenWords": found_words,
-        "hasForbiddenWords": len(found_words) > 0,
-    }
+    return forbidden_word_service.process_text(text, db)

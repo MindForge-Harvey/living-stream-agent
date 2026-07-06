@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from app.core.database import get_db
+from app.core.time_utils import format_shanghai_display
 from app.models.models import ScoringConfig
 from app.api.admin import get_current_admin
 
@@ -42,14 +43,17 @@ async def get_scoring_configs(
         "dimensions": c.dimensions,
         "prompt_template": c.prompt_template,
         "is_default": c.is_default,
-        "created_at": c.created_at.strftime("%Y-%m-%d %H:%M:%S") if c.created_at else "",
-        "updated_at": c.updated_at.strftime("%Y-%m-%d %H:%M:%S") if c.updated_at else ""
+        "created_at": format_shanghai_display(c.created_at),
+        "updated_at": format_shanghai_display(c.updated_at),
     } for c in configs]
 
 
 @router.get("/default")
-async def get_default_scoring_config(db: Session = Depends(get_db)):
-    """获取默认打分配置（无需认证）"""
+async def get_default_scoring_config(
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin)
+):
+    """获取默认打分配置"""
     config = db.query(ScoringConfig).filter(ScoringConfig.is_default == True).first()
     if not config:
         return None
