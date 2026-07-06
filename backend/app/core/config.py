@@ -69,8 +69,9 @@ class Settings(BaseSettings):
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
 
     # 部署配置
-    REDIRECT_URL: str = "/chat/test/login"
+    REDIRECT_URL: str = "/test/login"
     ENABLE_TEST_PLATFORM: bool = True
+    PLATFORM_ENTRY_TOKEN: str = "5s9D2g7F0k3j6P1r8T4b7N2m5Z9x0C3v7B1n4A6q8w2E5r7t9y1u3i5o7p0a2s4d6f8g"
 
     @property
     def DATABASE_URL(self) -> str:

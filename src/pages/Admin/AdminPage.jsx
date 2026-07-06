@@ -25,8 +25,6 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem('adminActiveTab') || 'statistics'
   })
-  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false)
-  const [passwordData, setPasswordData] = useState({ oldPassword: '', newPassword: '', confirmPassword: '' })
   const [stats, setStats] = useState({ overview: null, users: [], tools: [] })
   const [userDetailOpen, setUserDetailOpen] = useState(false)
   const [selectedUserId, setSelectedUserId] = useState(null)
@@ -81,7 +79,7 @@ export default function AdminPage() {
   useEffect(() => {
     const token = localStorage.getItem('adminToken')
     if (!token) {
-      navigate('/chat/login')
+      navigate('/chat/')
       return
     }
     loadStats()
@@ -295,8 +293,8 @@ export default function AdminPage() {
       params.set('pageSize', pageSize)
 
       const [overviewRes, usersRes] = await Promise.all([
-        fetch('/chat/api/dialogs/stats/overview', { headers }),
-        fetch(`/chat/api/dialogs/stats/users?${params}`, { headers }),
+        fetch('/chat/api/admin/conversations/stats/overview', { headers }),
+        fetch(`/chat/api/admin/conversations/stats/users?${params}`, { headers }),
       ])
 
       const overview = overviewRes.ok ? await overviewRes.json() : null
@@ -313,7 +311,7 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
-      const res = await fetch('/chat/api/dialogs/stats/filters', { headers })
+      const res = await fetch('/chat/api/admin/conversations/stats/filters', { headers })
       if (res.ok) {
         const data = await res.json()
         setFilterOptions(data)
@@ -368,7 +366,7 @@ export default function AdminPage() {
       params.set('sortBy', statsSort.sortBy)
       params.set('sortOrder', statsSort.sortOrder)
 
-      const res = await fetch(`/chat/api/dialogs/stats/users/export?${params}`, { headers })
+      const res = await fetch(`/chat/api/admin/conversations/stats/users/export?${params}`, { headers })
       if (res.ok) {
         const blob = await res.blob()
         const url = window.URL.createObjectURL(blob)
@@ -400,7 +398,7 @@ export default function AdminPage() {
     setLoadingDialogs(true)
     
     try {
-      const res = await fetch(`/chat/api/dialogs?userId=${userId}`)
+      const res = await fetch(`/chat/api/admin/conversations?userId=${userId}`, { headers })
       if (res.ok) {
         const data = await res.json()
         setUserDialogs(data.items || data)
@@ -420,7 +418,7 @@ export default function AdminPage() {
     setLoadingMessages(true)
     
     try {
-      const res = await fetch(`/chat/api/dialogs/${dialog.id}/messages`)
+      const res = await fetch(`/chat/api/admin/conversations/${dialog.id}/messages`, { headers })
       if (res.ok) {
         const data = await res.json()
         setDialogMessages(data)
@@ -602,44 +600,6 @@ export default function AdminPage() {
     }
   }
 
-  const handleChangePassword = async (e) => {
-    e.preventDefault()
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert('两次输入的密码不一致')
-      return
-    }
-    if (passwordData.newPassword.length < 6) {
-      alert('新密码长度不能少于6位')
-      return
-    }
-
-    try {
-      const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/admin/change-password', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          old_password: passwordData.oldPassword,
-          new_password: passwordData.newPassword
-        })
-      })
-
-      const data = await res.json()
-      if (res.ok) {
-        alert('密码修改成功')
-        setPasswordDialogOpen(false)
-        setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' })
-      } else {
-        alert(data.detail || '修改失败')
-      }
-    } catch (err) {
-      alert('修改失败: ' + err.message)
-    }
-  }
-
   const tabs = [
     { key: 'statistics', label: '用户使用统计', icon: '📊' },
     { key: 'forbidden', label: '违禁词配置', icon: '🚫' },
@@ -661,7 +621,6 @@ export default function AdminPage() {
         </div>
         <div className={styles.headerRight}>
           <button className={styles.homeBtn} onClick={() => navigate('/chat/')}>返回对话</button>
-          <button className={styles.passwordBtn} onClick={() => setPasswordDialogOpen(true)}>修改密码</button>
           <button className={styles.logoutBtn} onClick={handleLogout}>退出登录</button>
         </div>
       </header>
@@ -1142,62 +1101,6 @@ export default function AdminPage() {
           )}
         </main>
       </div>
-
-      {passwordDialogOpen && (
-        <div className={styles.overlay} onClick={() => setPasswordDialogOpen(false)}>
-          <div className={styles.dialog} onClick={(e) => e.stopPropagation()}>
-            <div className={styles.dialogHeader}>
-              <h3>修改密码</h3>
-              <button className={styles.closeBtn} onClick={() => setPasswordDialogOpen(false)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
-                </svg>
-              </button>
-            </div>
-
-            <form className={styles.form} onSubmit={handleChangePassword}>
-              <div className={styles.field}>
-                <label className={styles.label}>原密码</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={passwordData.oldPassword}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, oldPassword: e.target.value }))}
-                  placeholder="请输入原密码"
-                />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.label}>新密码</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={passwordData.newPassword}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, newPassword: e.target.value }))}
-                  placeholder="请输入新密码（至少6位）"
-                />
-              </div>
-
-              <div className={styles.field}>
-                <label className={styles.label}>确认新密码</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={passwordData.confirmPassword}
-                  onChange={(e) => setPasswordData(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                  placeholder="请再次输入新密码"
-                />
-              </div>
-
-              <div className={styles.dialogActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setPasswordDialogOpen(false)}>取消</button>
-                <button type="submit" className={styles.saveBtn}>确认修改</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {forbiddenWordDialogOpen && (
         <div className={styles.overlay} onClick={() => setForbiddenWordDialogOpen(false)}>

@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import styles from './TestLogin.module.css'
+
+const PLATFORM_ENTRY_TOKEN = '5s9D2g7F0k3j6P1r8T4b7N2m5Z9x0C3v7B1n4A6q8w2E5r7t9y1u3i5o7p0a2s4d6f8g'
 
 export default function TestLoginPage() {
   const [userId, setUserId] = useState('')
   const [staffName, setStaffName] = useState('')
   const [password, setPassword] = useState('')
-  const navigate = useNavigate()
 
   const TEST_PASSWORD = '123456'
 
@@ -29,7 +29,7 @@ export default function TestLoginPage() {
     // 模拟平台登录，发送 postMessage
     const userInfo = {
       platformUserId: userId.trim(),
-      platformToken: 'test-token',
+      platformToken: PLATFORM_ENTRY_TOKEN,
       lanName: '',
       regionName: '',
       staffCode: '',
@@ -37,34 +37,27 @@ export default function TestLoginPage() {
       staffPosType: '',
     }
 
-    // 打开新窗口并发送登录信息
-    const chatWindow = window.open('/chat/', '_blank')
-    
-    // 等待页面加载后发送消息
-    setTimeout(() => {
-      chatWindow.postMessage({
+    const iframe = document.createElement('iframe')
+    iframe.src = '/chat/'
+    iframe.style.display = 'none'
+    iframe.setAttribute('aria-hidden', 'true')
+    document.body.appendChild(iframe)
+
+    let attempts = 0
+    const timer = setInterval(() => {
+      attempts += 1
+      iframe.contentWindow?.postMessage({
         type: 'PLATFORM_LOGIN',
         ...userInfo
       }, window.location.origin)
-    }, 1000)
+      if (attempts >= 30) {
+        clearInterval(timer)
+      }
+    }, 300)
 
-    // 也可以直接跳转
-    // navigate('/chat/')
-  }
-
-  const handleDirectLogin = () => {
-    if (!userId.trim()) {
-      alert('请输入用户ID')
-      return
-    }
-    if (!checkPassword()) return
-
-    // 直接跳转并传递参数
-    const params = new URLSearchParams({
-      userId: userId.trim(),
-      staffName: staffName.trim() || userId.trim()
-    })
-    navigate(`/chat/?${params.toString()}`)
+    setTimeout(() => {
+      window.open('/chat/', '_blank')
+    }, 2500)
   }
 
   return (
@@ -113,14 +106,7 @@ export default function TestLoginPage() {
 
           <div className={styles.actions}>
             <button className={styles.submitBtn} type="submit">
-              新窗口打开
-            </button>
-            <button 
-              className={styles.directBtn} 
-              type="button"
-              onClick={handleDirectLogin}
-            >
-              直接进入
+              打开聊天页面
             </button>
           </div>
         </form>
@@ -128,8 +114,8 @@ export default function TestLoginPage() {
         <div className={styles.hint}>
           <p>说明：</p>
           <ul>
-            <li>新窗口打开：会在新窗口中打开对话页面</li>
-            <li>直接进入：在当前窗口直接进入</li>
+            <li>登录成功后会打开新的对话页面</li>
+            <li>登录信息通过 postMessage 发送给 /chat 页面</li>
           </ul>
         </div>
       </div>

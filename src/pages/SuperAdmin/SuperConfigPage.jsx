@@ -7,12 +7,9 @@ export default function SuperConfigPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [showResetModal, setShowResetModal] = useState(false)
   const [showBindModal, setShowBindModal] = useState(false)
   const [selectedAdmin, setSelectedAdmin] = useState(null)
-  const [newUsername, setNewUsername] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [resetPassword, setResetPassword] = useState('')
+  const [newBoundUserId, setNewBoundUserId] = useState('')
   const [bindUserId, setBindUserId] = useState('')
   const navigate = useNavigate()
 
@@ -60,14 +57,13 @@ export default function SuperConfigPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ username: newUsername, password: newPassword })
+        body: JSON.stringify({ bound_user_id: newBoundUserId.trim() })
       })
 
       const data = await res.json()
       if (res.ok) {
         setShowCreateModal(false)
-        setNewUsername('')
-        setNewPassword('')
+        setNewBoundUserId('')
         fetchAdmins()
       } else {
         setError(data.detail || '创建管理员失败')
@@ -113,34 +109,6 @@ export default function SuperConfigPage() {
       } else {
         const data = await res.json()
         setError(data.detail || '更新管理员状态失败')
-      }
-    } catch (err) {
-      setError('网络错误: ' + err.message)
-    }
-  }
-
-  const handleResetPassword = async (e) => {
-    e.preventDefault()
-    if (!selectedAdmin) return
-
-    try {
-      const res = await fetch(`/api/super-admin/admins/${selectedAdmin.id}/reset-password`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ new_password: resetPassword })
-      })
-
-      if (res.ok) {
-        setShowResetModal(false)
-        setSelectedAdmin(null)
-        setResetPassword('')
-        alert('密码已重置')
-      } else {
-        const data = await res.json()
-        setError(data.detail || '重置密码失败')
       }
     } catch (err) {
       setError('网络错误: ' + err.message)
@@ -211,7 +179,7 @@ export default function SuperConfigPage() {
             <thead>
               <tr>
                 <th>ID</th>
-                <th>用户名</th>
+                <th>管理员标识</th>
                 <th>状态</th>
                 <th>类型</th>
                 <th>绑定用户ID</th>
@@ -262,15 +230,6 @@ export default function SuperConfigPage() {
                           {admin.bound_user_id ? '修改绑定' : '绑定用户'}
                         </button>
                         <button
-                          className={styles.actionBtn}
-                          onClick={() => {
-                            setSelectedAdmin(admin)
-                            setShowResetModal(true)
-                          }}
-                        >
-                          重置密码
-                        </button>
-                        <button
                           className={`${styles.actionBtn} ${styles.deleteBtn}`}
                           onClick={() => handleDelete(admin.id)}
                         >
@@ -292,55 +251,20 @@ export default function SuperConfigPage() {
             <h3 className={styles.modalTitle}>新增管理员</h3>
             <form onSubmit={handleCreate}>
               <div className={styles.field}>
-                <label className={styles.label}>用户名</label>
+                <label className={styles.label}>平台用户ID（userId）</label>
                 <input
                   className={styles.input}
                   type="text"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  placeholder="请输入用户名"
+                  value={newBoundUserId}
+                  onChange={(e) => setNewBoundUserId(e.target.value)}
+                  placeholder="请输入要授权为管理员的平台用户ID"
                   required
                 />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>密码</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="请输入密码"
-                  required
-                />
+                <p className={styles.fieldHint}>该用户进入对话页后会自动显示后台入口，无需管理员用户名和密码。</p>
               </div>
               <div className={styles.modalActions}>
                 <button type="button" className={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>取消</button>
                 <button type="submit" className={styles.confirmBtn}>创建</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showResetModal && selectedAdmin && (
-        <div className={styles.modal}>
-          <div className={styles.modalContent}>
-            <h3 className={styles.modalTitle}>重置密码 - {selectedAdmin.username}</h3>
-            <form onSubmit={handleResetPassword}>
-              <div className={styles.field}>
-                <label className={styles.label}>新密码</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={resetPassword}
-                  onChange={(e) => setResetPassword(e.target.value)}
-                  placeholder="请输入新密码"
-                  required
-                />
-              </div>
-              <div className={styles.modalActions}>
-                <button type="button" className={styles.cancelBtn} onClick={() => setShowResetModal(false)}>取消</button>
-                <button type="submit" className={styles.confirmBtn}>确认重置</button>
               </div>
             </form>
           </div>

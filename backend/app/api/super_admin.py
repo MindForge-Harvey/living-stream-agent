@@ -4,7 +4,8 @@ from pydantic import BaseModel
 from typing import Optional
 
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token, decode_token
+from app.core.security import verify_password, create_access_token, decode_token
+from app.core.time_utils import format_shanghai_display
 from app.models.models import Admin
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
@@ -24,21 +25,15 @@ class SuperAdminLoginResponse(BaseModel):
 
 
 class CreateAdminRequest(BaseModel):
-    username: str
-    password: str
+    bound_user_id: str
 
 
 class UpdateAdminRequest(BaseModel):
-    username: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class BindUserIdRequest(BaseModel):
     bound_user_id: Optional[str] = None
-
-
-class ResetPasswordRequest(BaseModel):
-    new_password: str
 
 
 class AdminResponse(BaseModel):
@@ -102,23 +97,33 @@ async def list_admins(current_admin: Admin = Depends(get_current_super_admin), d
             "is_active": admin.is_active,
             "is_superadmin": admin.is_superadmin,
             "bound_user_id": admin.bound_user_id,
-            "created_at": admin.created_at.strftime("%Y-%m-%d %H:%M:%S") if admin.created_at else ""
+            "created_at": format_shanghai_display(admin.created_at),
         })
     return result
 
 
 @router.post("/admins")
 async def create_admin(req: CreateAdminRequest, current_admin: Admin = Depends(get_current_super_admin), db: Session = Depends(get_db)):
-    """创建新管理员"""
-    existing = db.query(Admin).filter(Admin.username == req.username).first()
+    """创建绑定 userId 的普通管理员。"""
+    bound_user_id = req.bound_user_id.strip()
+    if not bound_user_id:
+        raise HTTPException(status_code=400, detail="绑定用户ID不能为空")
+
+    existing_bound = db.query(Admin).filter(Admin.bound_user_id == bound_user_id).first()
+    if existing_bound:
+        raise HTTPException(status_code=400, detail=f"该用户ID已被管理员「{existing_bound.username}」绑定")
+
+    username = f"admin_{bound_user_id}"
+    existing = db.query(Admin).filter(Admin.username == username).first()
     if existing:
-        raise HTTPException(status_code=400, detail="用户名已存在")
+        raise HTTPException(status_code=400, detail="该用户ID对应的管理员已存在")
 
     new_admin = Admin(
-        username=req.username,
-        hashed_password=get_password_hash(req.password),
+        username=username,
+        hashed_password="",
         is_active=True,
-        is_superadmin=False
+        is_superadmin=False,
+        bound_user_id=bound_user_id
     )
     db.add(new_admin)
     db.commit()
@@ -143,12 +148,6 @@ async def update_admin(admin_id: int, req: UpdateAdminRequest, current_admin: Ad
 
     if admin.is_superadmin:
         raise HTTPException(status_code=400, detail="不能修改超级管理员信息")
-
-    if req.username is not None:
-        existing = db.query(Admin).filter(Admin.username == req.username, Admin.id != admin_id).first()
-        if existing:
-            raise HTTPException(status_code=400, detail="用户名已存在")
-        admin.username = req.username
 
     if req.is_active is not None:
         admin.is_active = req.is_active
@@ -180,22 +179,6 @@ async def delete_admin(admin_id: int, current_admin: Admin = Depends(get_current
     db.commit()
 
     return {"message": "管理员已删除"}
-
-
-@router.post("/admins/{admin_id}/reset-password")
-async def reset_password(admin_id: int, req: ResetPasswordRequest, current_admin: Admin = Depends(get_current_super_admin), db: Session = Depends(get_db)):
-    """重置管理员密码"""
-    admin = db.query(Admin).filter(Admin.id == admin_id).first()
-    if not admin:
-        raise HTTPException(status_code=404, detail="管理员不存在")
-
-    if admin.is_superadmin:
-        raise HTTPException(status_code=400, detail="不能重置超级管理员密码")
-
-    admin.hashed_password = get_password_hash(req.new_password)
-    db.commit()
-
-    return {"message": "密码已重置"}
 
 
 @router.put("/admins/{admin_id}/bind-user")

@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
-import { callAgent, fetchForbiddenWords } from './api/index'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { authHeaders, callAgent, fetchForbiddenWords } from './api/index'
 import Sidebar from './components/Sidebar/Sidebar'
 import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
@@ -30,6 +30,7 @@ function getTime() {
 
 export default function App({ userInfo }) {
   const userId = userInfo?.platformUserId
+  const authHeader = useMemo(() => authHeaders(userInfo?.platformToken), [userInfo?.platformToken])
   const [dialogs, setDialogs] = useState([])
   const [currentDialog, setCurrentDialog] = useState(null)
   const [messages, setMessages] = useState([])
@@ -42,6 +43,7 @@ export default function App({ userInfo }) {
   const [templateSelectorOpen, setTemplateSelectorOpen] = useState(false)
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false)
   const [inputText, setInputText] = useState('')
+  const [isAdminUser, setIsAdminUser] = useState(false)
   const abortControllerRef = useRef(null)
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
@@ -60,7 +62,9 @@ export default function App({ userInfo }) {
     const loadDialogs = async () => {
       try {
         setLoadingDialogs(true)
-        const res = await fetch(`/chat/api/dialogs?userId=${userId}&pageSize=100`)
+        const res = await fetch('/chat/api/conversations?pageSize=100', {
+          headers: authHeader,
+        })
         if (res.ok) {
           const data = await res.json()
           setDialogs(data.items || data)
@@ -72,7 +76,30 @@ export default function App({ userInfo }) {
       }
     }
     if (userId) loadDialogs()
-  }, [userId])
+  }, [userId, userInfo?.platformToken])
+
+  useEffect(() => {
+    const checkAdminIdentity = async () => {
+      if (!userId || !userInfo?.platformToken) {
+        setIsAdminUser(false)
+        return
+      }
+      try {
+        const res = await fetch('/chat/api/admin/me-by-user', {
+          headers: authHeader,
+        })
+        if (!res.ok) {
+          setIsAdminUser(false)
+          return
+        }
+        const data = await res.json()
+        setIsAdminUser(Boolean(data.isAdmin))
+      } catch {
+        setIsAdminUser(false)
+      }
+    }
+    checkAdminIdentity()
+  }, [authHeader, userId, userInfo?.platformToken])
 
   useEffect(() => {
     const checkHealth = async () => {
@@ -101,9 +128,11 @@ export default function App({ userInfo }) {
     loadForbiddenWords()
   }, [])
 
-  const loadDialogMessages = async (dialogId) => {
+  const loadDialogMessages = useCallback(async (dialogId) => {
     try {
-      const res = await fetch(`/chat/api/dialogs/${dialogId}/messages`)
+      const res = await fetch(`/chat/api/conversations/${dialogId}/messages`, {
+        headers: authHeader,
+      })
       if (res.ok) {
         const data = await res.json()
         return data.map(m => ({
@@ -116,7 +145,7 @@ export default function App({ userInfo }) {
       console.error('加载消息失败:', err)
     }
     return null
-  }
+  }, [userInfo?.platformToken])
 
   const selectDialog = useCallback(async (dialog) => {
     setCurrentDialog(dialog)
@@ -128,7 +157,7 @@ export default function App({ userInfo }) {
       setMessages(msgs)
     }
     setSidebarOpen(false)
-  }, [])
+  }, [loadDialogMessages])
 
   const createNewDialog = useCallback(async () => {
     const requestData = {
@@ -148,9 +177,9 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch('/chat/api/dialogs', {
+      const res = await fetch('/chat/api/conversations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),
       })
 
@@ -173,12 +202,15 @@ export default function App({ userInfo }) {
       console.error('创建对话失败:', err)
       showToast('创建对话失败: ' + err.message, 'error')
     }
-  }, [userId, userInfo])
+  }, [authHeader, userId, userInfo])
 
   const deleteDialog = useCallback(async (dialogId) => {
     if (!confirm('确定删除此对话？')) return
     try {
-      const res = await fetch(`/chat/api/dialogs/${dialogId}?userId=${userId}`, { method: 'DELETE' })
+      const res = await fetch(`/chat/api/conversations/${dialogId}`, {
+        method: 'DELETE',
+        headers: authHeader,
+      })
       if (res.ok) {
         setDialogs(prev => prev.filter(d => d.id !== dialogId))
         if (currentDialog?.id === dialogId) {
@@ -194,7 +226,7 @@ export default function App({ userInfo }) {
       console.error('删除对话失败:', err)
       showToast('删除对话失败: ' + err.message, 'error')
     }
-  }, [currentDialog, userId])
+  }, [authHeader, currentDialog])
 
   const clearChat = useCallback(() => {
     if (!currentDialog) return
@@ -216,9 +248,9 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch('/chat/api/dialogs', {
+      const res = await fetch('/chat/api/conversations', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),
       })
 
@@ -238,7 +270,7 @@ export default function App({ userInfo }) {
       showToast('创建对话失败: ' + err.message, 'error')
       return null
     }
-  }, [userId, userInfo])
+  }, [authHeader, userId, userInfo])
 
   const sendMessage = useCallback(
     async (text, file) => {
@@ -258,9 +290,9 @@ export default function App({ userInfo }) {
       setMessages(prev => [...prev, userMsg])
 
       try {
-        await fetch('/chat/api/dialogs/message', {
+        await fetch('/chat/api/conversations/message', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader },
           body: JSON.stringify({
             dialogId: dialog.id,
             userId: userId,
@@ -289,13 +321,13 @@ export default function App({ userInfo }) {
             }
             return updated
           })
-        }, controller.signal, userId)
+        }, controller.signal)
 
         if (result) {
           try {
-            await fetch('/chat/api/dialogs/message', {
+            await fetch('/chat/api/conversations/message', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: { 'Content-Type': 'application/json', ...authHeader },
               body: JSON.stringify({
                 dialogId: dialog.id,
                 userId: userId,
@@ -339,7 +371,7 @@ export default function App({ userInfo }) {
         abortControllerRef.current = null
       }
     },
-    [currentDialog, userId, createDialogAndSend]
+    [authHeader, userId, createDialogAndSend]
   )
 
   const handleAbort = useCallback(() => {
@@ -415,6 +447,7 @@ ${template.template_content}
           onTemplateSelect={() => setTemplateSelectorOpen(true)}
           dialogId={currentDialog?.id}
           userId={userId}
+          isAdminUser={isAdminUser}
         />
         {currentDialog ? (
           <>

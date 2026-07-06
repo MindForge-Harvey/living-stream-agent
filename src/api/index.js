@@ -7,21 +7,20 @@
  * @param {AbortSignal} signal - 中止信号
  * @returns {Promise<string>} 完整的响应文本
  */
-export async function callAgent(dialogId, message, file = null, onChunk = null, signal = null, userId = null) {
+export async function callAgent(dialogId, message, file = null, onChunk = null, signal = null) {
+  const token = getUserToken()
   const formData = new FormData()
   formData.append('message', message)
   if (dialogId) {
     formData.append('dialogId', dialogId)
   }
-  if (userId) {
-    formData.append('userId', userId)
-  }
   if (file) {
     formData.append('file', file)
   }
 
-  const res = await fetch('/chat/api/agent', {
+  const res = await fetch('/chat/api/assistant', {
     method: 'POST',
+    headers: authHeaders(token),
     body: formData,
     signal,
   })
@@ -108,9 +107,24 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
   return finalContent
 }
 
+export function getUserToken() {
+  try {
+    const userInfo = JSON.parse(localStorage.getItem('userInfo') || '{}')
+    return userInfo.platformToken || userInfo.token || ''
+  } catch {
+    return ''
+  }
+}
+
+export function authHeaders(token = getUserToken()) {
+  return token ? { 'Authorization': `Bearer ${token}` } : {}
+}
+
 // 用户记忆相关 API
 export async function fetchMemories(userId) {
-  const res = await fetch(`/chat/api/memories?user_id=${encodeURIComponent(userId)}`)
+  const res = await fetch('/chat/api/memories', {
+    headers: authHeaders()
+  })
   if (!res.ok) throw new Error('获取记忆失败')
   return res.json()
 }
@@ -118,8 +132,8 @@ export async function fetchMemories(userId) {
 export async function createMemory(userId, content) {
   const res = await fetch('/chat/api/memories', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: userId, content }),
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ content }),
   })
   if (!res.ok) throw new Error('创建记忆失败')
   return res.json()
@@ -128,7 +142,7 @@ export async function createMemory(userId, content) {
 export async function updateMemory(memoryId, content) {
   const res = await fetch(`/chat/api/memories/${memoryId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ content }),
   })
   if (!res.ok) throw new Error('更新记忆失败')
@@ -136,9 +150,9 @@ export async function updateMemory(memoryId, content) {
 }
 
 export async function deleteMemory(memoryId, userId) {
-  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : ''
-  const res = await fetch(`/chat/api/memories/${memoryId}${params}`, {
+  const res = await fetch(`/chat/api/memories/${memoryId}`, {
     method: 'DELETE',
+    headers: authHeaders()
   })
   if (!res.ok) throw new Error('删除记忆失败')
   // 安全解析 JSON，防止空响应导致解析错误
@@ -155,14 +169,15 @@ export async function fetchForbiddenWords() {
 
 // 脚本模板相关 API
 export async function fetchTemplates(category = null, productType = null, userId = null) {
-  let url = '/chat/api/templates/public'
+  let url = userId ? '/chat/api/templates/mine' : '/chat/api/templates/public'
   const params = new URLSearchParams()
   if (category) params.append('category', category)
   if (productType) params.append('product_type', productType)
-  if (userId) params.append('user_id', userId)
   if (params.toString()) url += '?' + params.toString()
   
-  const res = await fetch(url)
+  const res = await fetch(url, {
+    headers: userId ? authHeaders() : {}
+  })
   if (!res.ok) throw new Error('获取模板失败')
   return res.json()
 }
@@ -175,10 +190,9 @@ export async function fetchTemplateById(templateId) {
 
 // 用户级模板（无需管理员认证）
 export async function createUserTemplate(data, userId) {
-  const params = new URLSearchParams({ user_id: userId })
-  const res = await fetch(`/chat/api/templates/my?${params}`, {
+  const res = await fetch('/chat/api/templates/my', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(data)
   })
   if (!res.ok) throw new Error('创建模板失败')
@@ -186,10 +200,9 @@ export async function createUserTemplate(data, userId) {
 }
 
 export async function updateUserTemplate(templateId, data, userId) {
-  const params = new URLSearchParams({ user_id: userId })
-  const res = await fetch(`/chat/api/templates/my/${templateId}?${params}`, {
+  const res = await fetch(`/chat/api/templates/my/${templateId}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(data)
   })
   if (!res.ok) throw new Error('更新模板失败')
@@ -197,9 +210,9 @@ export async function updateUserTemplate(templateId, data, userId) {
 }
 
 export async function deleteUserTemplate(templateId, userId) {
-  const params = new URLSearchParams({ user_id: userId })
-  const res = await fetch(`/chat/api/templates/my/${templateId}?${params}`, {
-    method: 'DELETE'
+  const res = await fetch(`/chat/api/templates/my/${templateId}`, {
+    method: 'DELETE',
+    headers: authHeaders()
   })
   if (!res.ok) throw new Error('删除模板失败')
   return res.json()
@@ -236,7 +249,9 @@ export async function updateTemplate(templateId, data) {
 
 // 脚本版本相关 API
 export async function fetchScriptVersions(dialogId) {
-  const res = await fetch(`/chat/api/agent/versions/${dialogId}`)
+  const res = await fetch(`/chat/api/assistant/versions/${dialogId}`, {
+    headers: authHeaders()
+  })
   if (!res.ok) throw new Error('获取版本历史失败')
   return res.json()
 }
@@ -246,7 +261,8 @@ export async function exportScript(dialogId, format = 'txt') {
   const res = await fetch('/chat/api/export', {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...authHeaders()
     },
     body: JSON.stringify({ dialog_id: dialogId, format })
   })
