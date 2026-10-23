@@ -4,13 +4,13 @@
 
 ## 阿里云与门户 CAS
 
-生产使用 `docker-compose.server.yml`，容器为 `living-stream-backend`、`living-stream-frontend` 和独立持久化 MySQL `living-stream-mysql`，均不发布宿主机端口。MySQL 数据在 `living-stream-agent_mysql-data` 卷内，升级和回滚禁止删除该卷。服务目录为 `/root/work_project/living-stream-agent`。
+阿里云使用 `docker-compose.server.yml` 的 `backend` 和 `frontend` 两个服务，容器为 `living-stream-backend`、`living-stream-frontend`，不发布宿主机端口。数据库复用 `proxy-tier` 上已有的 `my-mysql`，单独建立 `living_stream_agent` 数据库与同名受限账号，数据沿用共享 MySQL 的 `/root/work_project/news/mysql_data` 持久化目录。服务目录为 `/root/work_project/living-stream-agent`。编排中的 `mysql` 服务仅供需要自建数据库的其他环境使用；对应 `living-stream-agent_mysql-data` 卷不能在升级时删除。
 
-公网入口为 `https://www.agent-show.com/living-stream-agent/chat/`。设置 `APP_ENV=production`、`APP_PUBLIC_URL=https://www.agent-show.com/living-stream-agent`、`PORTAL_AUTH_URL=http://portal-auth:8080`、`MYSQL_HOST=mysql`、`MYSQL_PORT=3306`，并在服务器生成独立数据库和 JWT/管理员密码，配置云端模型；不上传本机开发 `.env`。生产关闭 `LOCAL_DEV_LOGIN`，也不开放原平台 Token 登录。
+公网入口为 `https://www.agent-show.com/living-stream-agent/chat/`。设置 `APP_ENV=production`、`APP_PUBLIC_URL=https://www.agent-show.com/living-stream-agent`、`PORTAL_AUTH_URL=http://portal-auth:8080`、`MYSQL_HOST=my-mysql`、`MYSQL_PORT=3306`，并在服务器生成独立数据库和 JWT/管理员密码，配置云端模型；不上传本机开发 `.env`。生产关闭 `LOCAL_DEV_LOGIN`，也不开放原平台 Token 登录。
 
 认证复用现有门户的 CAS 会话，不复制门户签名密钥。浏览器未登录时经 `/api/auth/login` 使用门户原有 CAS 回调，登录后返回直播话术；无需新增 CAS 回调白名单。每次业务请求由后端向门户验证 Cookie，资源归属取验证后的稳定 uid；旧账号请求头、跨账号会话/导出和管理员身份不匹配均拒绝。写请求要求同源 Origin 和 `X-Living-Stream-Request: 1`。认证故障返回 503，前端保留草稿并重试；退出和账号切换会重新校验身份并清理旧账号状态。
 
-发布前运行 `PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v`、`npm run build -- --base=/living-stream-agent/chat/` 和 `docker compose -f docker-compose.server.yml config --quiet`，提交并推送后再打包源码。发布命令为 `docker compose -f docker-compose.server.yml up -d --build`。外层 nginx 的精确路由片段见 `deploy/outer-nginx.conf`，加入现有 TLS server 后从门户目录执行 `docker compose restart nginx`；homepage 的 `VITE_LIVE_SCRIPT_URL` 指向上述应用入口。
+发布前运行 `PYTHONPATH=backend .venv/bin/python -m unittest discover -s backend/tests -v`、`npm run build -- --base=/living-stream-agent/chat/` 和 `docker compose -f docker-compose.server.yml config --quiet`，提交并推送后再打包源码。阿里云发布命令为 `docker compose -f docker-compose.server.yml up -d --no-deps --build backend frontend`，不启动备用 MySQL 容器。后端健康后如仅重建后端，应执行 `docker compose -f docker-compose.server.yml restart frontend` 刷新 nginx 的上游地址。构建配置可设置 `PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple`。外层 nginx 的精确路由片段见 `deploy/outer-nginx.conf`，加入现有 TLS server 后从门户目录执行 `docker compose restart nginx`；homepage 的 `VITE_LIVE_SCRIPT_URL` 指向上述应用入口。
 
 已有部署更新前刷新 `/root/work_project/codex-backups/codex-living-stream-agent-backup.tar.gz`，保留服务器 `.env` 与数据卷；门户和 nginx 使用对应的单份滚动备份。首次部署没有旧源码可备份。回滚恢复源码并重建容器，不能覆盖 `.env` 或删除数据库卷。健康检查为 `/living-stream-agent/chat/api/health`，未登录业务 API 返回 JSON 401，页面跳转门户登录。
 
