@@ -351,7 +351,11 @@ class LLMService:
                 messages=full_messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                stream=False
+                stream=False,
+                extra_body=(
+                    {"enable_thinking": settings.OPENAI_ENABLE_THINKING}
+                    if settings.OPENAI_ENABLE_THINKING is not None else None
+                ),
             )
             return response.choices[0].message.content
 
@@ -368,7 +372,11 @@ class LLMService:
                 messages=_harden_messages(messages),
                 temperature=temperature,
                 max_tokens=max_tokens,
-                stream=True
+                stream=True,
+                extra_body=(
+                    {"enable_thinking": settings.OPENAI_ENABLE_THINKING}
+                    if settings.OPENAI_ENABLE_THINKING is not None else None
+                ),
             )
 
             accumulated_content = ""

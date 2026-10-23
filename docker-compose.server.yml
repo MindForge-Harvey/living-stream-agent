@@ -1,0 +1,63 @@
+name: living-stream-agent
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: living-stream-mysql
+    mem_limit: 512m
+    command: ["--innodb-buffer-pool-size=128M", "--max-connections=50"]
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: living-stream-backend
+    mem_limit: 768m
+    restart: unless-stopped
+    volumes:
+      - ./.env:/app/.env:ro
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks: [internal, proxy-tier]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3001/chat/api/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: living-stream-frontend
+    mem_limit: 128m
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [internal, proxy-tier]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/chat/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+volumes:
+  mysql-data:
+networks:
+  internal:
+  proxy-tier:
+    external: true

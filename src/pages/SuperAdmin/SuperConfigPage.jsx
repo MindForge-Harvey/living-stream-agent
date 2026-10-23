@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { apiUrl } from '../../api/base'
+import { apiUrl, apiFetch } from '../../api/base'
 import styles from './SuperAdmin.module.css'
 
 export default function SuperConfigPage() {
@@ -78,7 +78,7 @@ export default function SuperConfigPage() {
   const searchPlatformUsers = async (keyword, setResults, setSearching) => {
     setSearching(true)
     try {
-      const res = await fetch(apiUrl(`/api/super-admin/platform-users/search?q=${encodeURIComponent(keyword.trim())}`), {
+      const res = await apiFetch(apiUrl(`/api/super-admin/platform-users/search?q=${encodeURIComponent(keyword.trim())}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       const data = await res.json()
@@ -99,7 +99,7 @@ export default function SuperConfigPage() {
 
   const fetchAdmins = async () => {
     try {
-      const res = await fetch(apiUrl('/api/super-admin/admins'), {
+      const res = await apiFetch(apiUrl('/api/super-admin/admins'), {
         headers: { 'Authorization': `Bearer ${token}` }
       })
 
@@ -149,8 +149,8 @@ export default function SuperConfigPage() {
       const headers = { 'Authorization': `Bearer ${token}` }
       const params = buildStatsParams(filters, sort, page)
       const [overviewRes, usersRes] = await Promise.all([
-        fetch(apiUrl('/api/super-admin/conversations/stats/overview'), { headers }),
-        fetch(apiUrl(`/api/super-admin/conversations/stats/users?${params}`), { headers }),
+        apiFetch(apiUrl('/api/super-admin/conversations/stats/overview'), { headers }),
+        apiFetch(apiUrl(`/api/super-admin/conversations/stats/users?${params}`), { headers }),
       ])
 
       if (handleUnauthorized(overviewRes) || handleUnauthorized(usersRes)) return
@@ -170,7 +170,7 @@ export default function SuperConfigPage() {
 
   const loadFilterOptions = async () => {
     try {
-      const res = await fetch(apiUrl('/api/super-admin/conversations/stats/filters'), {
+      const res = await apiFetch(apiUrl('/api/super-admin/conversations/stats/filters'), {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (handleUnauthorized(res)) return
@@ -218,7 +218,7 @@ export default function SuperConfigPage() {
   const handleExportUsers = async () => {
     try {
       const params = buildStatsParams(statsFilter, statsSort)
-      const res = await fetch(apiUrl(`/api/super-admin/conversations/stats/users/export?${params}`), {
+      const res = await apiFetch(apiUrl(`/api/super-admin/conversations/stats/users/export?${params}`), {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       if (handleUnauthorized(res)) return
@@ -252,7 +252,7 @@ export default function SuperConfigPage() {
     }
 
     try {
-      const res = await fetch(apiUrl('/api/super-admin/admins'), {
+      const res = await apiFetch(apiUrl('/api/super-admin/admins'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -277,7 +277,7 @@ export default function SuperConfigPage() {
     if (!confirm('确定要删除此管理员吗？')) return
 
     try {
-      const res = await fetch(apiUrl(`/api/super-admin/admins/${adminId}`), {
+      const res = await apiFetch(apiUrl(`/api/super-admin/admins/${adminId}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -295,7 +295,7 @@ export default function SuperConfigPage() {
 
   const handleToggleActive = async (adminId, currentStatus) => {
     try {
-      const res = await fetch(apiUrl(`/api/super-admin/admins/${adminId}`), {
+      const res = await apiFetch(apiUrl(`/api/super-admin/admins/${adminId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -359,7 +359,7 @@ export default function SuperConfigPage() {
     const boundUserId = selectedBindUser?.platform_user_id || null
 
     try {
-      const res = await fetch(apiUrl(`/api/super-admin/admins/${selectedAdmin.id}/bind-user`), {
+      const res = await apiFetch(apiUrl(`/api/super-admin/admins/${selectedAdmin.id}/bind-user`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

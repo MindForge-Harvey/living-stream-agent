@@ -3,9 +3,11 @@ node_modules/
 .gitignore
 .env
 .venv
+.local/
 __pycache__/
 *.py[cod]
 .idea/
 .vscode/
 *.md
 living-stream-agent-test/
+deploy/database.sql

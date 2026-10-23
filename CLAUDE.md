@@ -43,10 +43,10 @@ docker compose restart
 ## 关键配置 (.env)
 
 ```
-OPENAI_API_KEY=26ec728f-99b2-4650-bcf8-9adf08e510e6
+OPENAI_API_KEY=your-api-key-here
 OPENAI_BASE_URL=http://host.docker.internal:8765/v1
 OPENAI_MODEL=Deepseek-V4-Flash
-MYSQL_PASSWORD=living_stream_2024
+MYSQL_PASSWORD=your-mysql-password
 ```
 
 ## 代码规范

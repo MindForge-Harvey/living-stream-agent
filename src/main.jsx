@@ -2,10 +2,11 @@ import React, { useState, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom/client'
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import App from './App'
+import SessionGate from './components/SessionGate'
 import AdminPage from './pages/Admin/AdminPage'
 import SuperLoginPage from './pages/SuperAdmin/SuperLoginPage'
 import SuperConfigPage from './pages/SuperAdmin/SuperConfigPage'
-import { apiUrl } from './api/base'
+import { apiUrl, apiFetch } from './api/base'
 import './styles/variables.css'
 
 const LOGIN_ERROR_MESSAGES = {
@@ -30,7 +31,7 @@ function ChatRoute() {
 
   useEffect(() => {
     const issueTestToken = async (info) => {
-      const res = await fetch(apiUrl('/chat/api/auth/test-token'), {
+      const res = await apiFetch(apiUrl('/chat/api/auth/test-token'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -246,15 +247,21 @@ function SuperAdminRoute({ children }) {
   return children
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <HashRouter>
+function AppRoutes({ user }) {
+  return (
       <Routes>
-        <Route path="/" element={<ChatRoute />} />
+        <Route path="/" element={user ? <App userInfo={user} /> : <ChatRoute />} />
         <Route path="/config" element={<AdminRoute><AdminPage /></AdminRoute>} />
         <Route path="/superlogin" element={<SuperLoginPage />} />
         <Route path="/superconfig" element={<SuperAdminRoute><SuperConfigPage /></SuperAdminRoute>} />
       </Routes>
+  )
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <HashRouter>
+      <SessionGate platform={<AppRoutes />}>{user => <AppRoutes user={user} />}</SessionGate>
     </HashRouter>
   </React.StrictMode>
 )

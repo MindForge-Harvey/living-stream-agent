@@ -41,6 +41,9 @@ docker-compose.override.yml
 
 # 数据库导出/备份
 deploy/backups/
-deploy/migrations/
+!deploy/migrations/
+deploy/migrations/*
+!deploy/migrations/.gitkeep
 output/
 deploy/living_stream_agent_server_0910.sql
+.local/

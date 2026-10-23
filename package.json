@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "dev:backend": "cd backend && uvicorn app.main:app --reload --port 3001",
-    "dev:all": "npx kill-port 5173 3001 2>/dev/null; npx concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "dev:all": "./start-local",
+    "local:start": "./start-local",
+    "local:stop": "./stop-local",
     "build": "vite build",
     "preview": "vite preview"
   },

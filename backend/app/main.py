@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
@@ -18,6 +19,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info(f"应用启动: {settings.APP_NAME} v{settings.APP_VERSION}")
+    if settings.APP_ENV == "production":
+        if not settings.PORTAL_AUTH_URL or not settings.APP_PUBLIC_URL.startswith("https://"):
+            raise RuntimeError("生产环境必须配置门户认证服务和 HTTPS 公网地址")
     logger.info(f"OpenAI 配置: base_url={settings.OPENAI_BASE_URL}, model={settings.OPENAI_MODEL}")
     if os.getenv("SKIP_STARTUP_MIGRATIONS") == "1":
         logger.info("启动迁移已由容器入口执行，跳过 FastAPI lifespan 迁移")
@@ -36,6 +40,24 @@ app = FastAPI(
     redoc_url=None,
     openapi_url=None,
 )
+
+
+@app.middleware("http")
+async def portal_auth_middleware(request: Request, call_next):
+    """Protect all business/admin APIs, including formerly public endpoints."""
+    path = request.url.path
+    protected = path.startswith("/chat/api/") or path.startswith("/api/super-admin/")
+    if settings.PORTAL_AUTH_URL and protected and path != "/chat/api/health":
+        from app.core.portal import check_write_origin, portal_identity
+        try:
+            await portal_identity(request)
+            check_write_origin(request)
+        except HTTPException as error:
+            return JSONResponse({"detail": error.detail}, status_code=error.status_code, headers={"Cache-Control": "no-store"})
+    response = await call_next(request)
+    if protected:
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 @app.middleware("http")
 async def chat_cors_middleware(request: Request, call_next):

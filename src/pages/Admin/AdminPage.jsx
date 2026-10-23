@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
-import { apiUrl } from '../../api/base'
+import { apiUrl, apiFetch } from '../../api/base'
 import styles from './Admin.module.css'
 
 function MarkdownContent({ content }) {
@@ -103,7 +103,7 @@ export default function AdminPage() {
   const loadForbiddenWords = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/forbidden-words'), {
+      const res = await apiFetch(apiUrl('/chat/api/forbidden-words'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载违禁词失败')
@@ -117,7 +117,7 @@ export default function AdminPage() {
   const loadTemplates = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/templates'), {
+      const res = await apiFetch(apiUrl('/chat/api/templates'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载模板失败')
@@ -131,7 +131,7 @@ export default function AdminPage() {
   const loadScoringConfigs = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/scoring-configs'), {
+      const res = await apiFetch(apiUrl('/chat/api/scoring-configs'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载打分配置失败')
@@ -145,7 +145,7 @@ export default function AdminPage() {
   const loadSuggestedQuestions = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/suggested-questions'), {
+      const res = await apiFetch(apiUrl('/chat/api/suggested-questions'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载推荐问题失败')
@@ -179,7 +179,7 @@ export default function AdminPage() {
     setSavingSuggestedQuestions(true)
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/suggested-questions'), {
+      const res = await apiFetch(apiUrl('/chat/api/suggested-questions'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -220,7 +220,7 @@ export default function AdminPage() {
         : apiUrl('/chat/api/templates')
       const method = templateEditItem ? 'PUT' : 'POST'
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -251,7 +251,7 @@ export default function AdminPage() {
 
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl(`/chat/api/templates/${id}`), {
+      const res = await apiFetch(apiUrl(`/chat/api/templates/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -291,7 +291,7 @@ export default function AdminPage() {
         : apiUrl('/chat/api/scoring-configs')
       const method = scoringConfigEditItem ? 'PUT' : 'POST'
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
@@ -319,7 +319,7 @@ export default function AdminPage() {
 
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl(`/chat/api/scoring-configs/${id}`), {
+      const res = await apiFetch(apiUrl(`/chat/api/scoring-configs/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -362,8 +362,8 @@ export default function AdminPage() {
       params.set('pageSize', pageSize)
 
       const [overviewRes, usersRes] = await Promise.all([
-        fetch(apiUrl('/chat/api/admin/conversations/stats/overview'), { headers }),
-        fetch(apiUrl(`/chat/api/admin/conversations/stats/users?${params}`), { headers }),
+        apiFetch(apiUrl('/chat/api/admin/conversations/stats/overview'), { headers }),
+        apiFetch(apiUrl(`/chat/api/admin/conversations/stats/users?${params}`), { headers }),
       ])
 
       const overview = overviewRes.ok ? await overviewRes.json() : null
@@ -380,7 +380,7 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
-      const res = await fetch(apiUrl('/chat/api/admin/conversations/stats/filters'), { headers })
+      const res = await apiFetch(apiUrl('/chat/api/admin/conversations/stats/filters'), { headers })
       if (res.ok) {
         const data = await res.json()
         setFilterOptions(data)
@@ -435,7 +435,7 @@ export default function AdminPage() {
       params.set('sortBy', statsSort.sortBy)
       params.set('sortOrder', statsSort.sortOrder)
 
-      const res = await fetch(apiUrl(`/chat/api/admin/conversations/stats/users/export?${params}`), { headers })
+      const res = await apiFetch(apiUrl(`/chat/api/admin/conversations/stats/users/export?${params}`), { headers })
       if (res.ok) {
         const blob = await res.blob()
         const url = window.URL.createObjectURL(blob)
@@ -469,7 +469,7 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
-      const res = await fetch(apiUrl(`/chat/api/admin/conversations?userId=${encodeURIComponent(userId)}`), { headers })
+      const res = await apiFetch(apiUrl(`/chat/api/admin/conversations?userId=${encodeURIComponent(userId)}`), { headers })
       if (res.ok) {
         const data = await res.json()
         setUserDialogs(data.items || data)
@@ -492,7 +492,7 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
-      const res = await fetch(apiUrl(`/chat/api/admin/conversations/${dialog.id}/messages`), { headers })
+      const res = await apiFetch(apiUrl(`/chat/api/admin/conversations/${dialog.id}/messages`), { headers })
       if (res.ok) {
         const data = await res.json()
         setDialogMessages(data)
@@ -544,7 +544,7 @@ export default function AdminPage() {
     if (!confirm('确定删除此违禁词？')) return
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl(`/chat/api/forbidden-words/${id}`), { 
+      const res = await apiFetch(apiUrl(`/chat/api/forbidden-words/${id}`), {
         method: 'DELETE',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
@@ -573,7 +573,7 @@ export default function AdminPage() {
         : apiUrl('/chat/api/forbidden-words')
       const method = forbiddenWordEditItem ? 'PUT' : 'POST'
 
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method,
         headers: { 
           'Content-Type': 'application/json',
@@ -605,7 +605,7 @@ export default function AdminPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const res = await fetch(apiUrl('/chat/api/forbidden-words/import'), {
+      const res = await apiFetch(apiUrl('/chat/api/forbidden-words/import'), {
         method: 'POST',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData
@@ -631,7 +631,7 @@ export default function AdminPage() {
     setDownloading(true)
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/forbidden-words/template'), {
+      const res = await apiFetch(apiUrl('/chat/api/forbidden-words/template'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
 
@@ -659,7 +659,7 @@ export default function AdminPage() {
     if (!confirm('确定清空所有违禁词？此操作不可恢复！')) return
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(apiUrl('/chat/api/forbidden-words/batch/all'), { 
+      const res = await apiFetch(apiUrl('/chat/api/forbidden-words/batch/all'), {
         method: 'DELETE',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })

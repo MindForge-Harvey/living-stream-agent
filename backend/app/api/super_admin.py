@@ -79,10 +79,13 @@ def serialize_platform_user(user: PlatformUser | None) -> dict | None:
     }
 
 
-def get_current_super_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Admin:
+def get_current_super_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Admin:
     """获取当前登录的超级管理员"""
     token = credentials.credentials
     payload = decode_token(token)
+    identity = getattr(request.state, "portal_identity", None)
+    if identity and payload.get("portal_uid") != identity["uid"]:
+        raise HTTPException(status_code=401, detail="超级管理员身份与门户账号不匹配")
     admin_id_str = payload.get("sub", "")
 
     if not admin_id_str.startswith("super_admin:"):
@@ -125,7 +128,8 @@ async def super_admin_login(req: SuperAdminLoginRequest, request: Request, db: S
         return SuperAdminLoginResponse(success=False, error=GENERIC_AUTH_ERROR)
 
     record_auth_success("super_admin_login", identifier, ip)
-    token = create_access_token(data={"sub": f"super_admin:{admin.id}"})
+    identity = getattr(request.state, "portal_identity", None)
+    token = create_access_token(data={"sub": f"super_admin:{admin.id}", "portal_uid": identity["uid"] if identity else ""})
     return SuperAdminLoginResponse(success=True, token=token)
 
 

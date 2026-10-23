@@ -4,12 +4,12 @@ import hashlib
 
 import bcrypt
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.core.config import settings
 
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -58,7 +58,13 @@ def decode_token(token: str) -> dict:
         )
 
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+async def get_current_user(request: Request, credentials: HTTPAuthorizationCredentials | None = Depends(security)) -> dict:
+    if settings.PORTAL_AUTH_URL:
+        from app.core.portal import portal_identity
+        identity = await portal_identity(request)
+        return {"user_id": identity["uid"]}
+    if credentials is None:
+        raise HTTPException(status_code=401, detail="请先登录")
     token = credentials.credentials
     payload = decode_token(token)
     user_id = payload.get("sub")

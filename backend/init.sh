@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 cd /app/backend
 
 echo "Waiting for MySQL to be ready..."

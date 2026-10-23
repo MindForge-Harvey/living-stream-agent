@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "living-stream-agent"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = False
+    APP_ENV: str = "development"
+    APP_PUBLIC_URL: str = "http://127.0.0.1:5172"
+    PORTAL_AUTH_URL: str = ""
 
     # MySQL 配置
     MYSQL_HOST: str = "localhost"
@@ -64,6 +67,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "http://localhost:8765/v1"
     OPENAI_MODEL: str = "any"
+    # None 保持接口默认行为；兼容通义千问等支持 enable_thinking 的服务。
+    OPENAI_ENABLE_THINKING: bool | None = None
 
     # CORS 配置
     CORS_ORIGINS: list[str] = [

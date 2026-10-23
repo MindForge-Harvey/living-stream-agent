@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { authHeaders, callAgent, fetchForbiddenWords, fetchSuggestedQuestions } from './api/index'
-import { apiUrl } from './api/base'
+import { apiUrl, apiFetch } from './api/base'
 import Sidebar from './components/Sidebar/Sidebar'
 import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
@@ -45,6 +45,7 @@ export default function App({ userInfo }) {
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
   const currentDialogRef = useRef(currentDialog)
+  useEffect(() => () => abortControllerRef.current?.abort(), [])
 
   // 保持 currentDialogRef 与 currentDialog 同步
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function App({ userInfo }) {
     const loadDialogs = async () => {
       try {
         setLoadingDialogs(true)
-        const res = await fetch(apiUrl('/chat/api/conversations?pageSize=100'), {
+        const res = await apiFetch(apiUrl('/chat/api/conversations?pageSize=100'), {
           headers: authHeader,
         })
         if (res.ok) {
@@ -77,12 +78,12 @@ export default function App({ userInfo }) {
 
   useEffect(() => {
     const checkAdminIdentity = async () => {
-      if (!userId || !userInfo?.platformToken) {
+      if (!userId || (!userInfo?.platformToken && userInfo?.authMode !== 'portal')) {
         setIsAdminUser(false)
         return
       }
       try {
-        const res = await fetch(apiUrl('/chat/api/admin/me-by-user'), {
+        const res = await apiFetch(apiUrl('/chat/api/admin/me-by-user'), {
           headers: authHeader,
         })
         if (!res.ok) {
@@ -101,7 +102,7 @@ export default function App({ userInfo }) {
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const res = await fetch(apiUrl('/chat/api/health'))
+        const res = await apiFetch(apiUrl('/chat/api/health'))
         const data = await res.json()
         setConnectionStatus({ connected: data.status === 'ok' })
       } catch {
@@ -140,7 +141,7 @@ export default function App({ userInfo }) {
 
   const loadDialogMessages = useCallback(async (dialogId) => {
     try {
-      const res = await fetch(apiUrl(`/chat/api/conversations/${dialogId}/messages`), {
+      const res = await apiFetch(apiUrl(`/chat/api/conversations/${dialogId}/messages`), {
         headers: authHeader,
       })
       if (res.ok) {
@@ -187,7 +188,7 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch(apiUrl('/chat/api/conversations'), {
+      const res = await apiFetch(apiUrl('/chat/api/conversations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),
@@ -217,7 +218,7 @@ export default function App({ userInfo }) {
   const deleteDialog = useCallback(async (dialogId) => {
     if (!confirm('确定删除此对话？')) return
     try {
-      const res = await fetch(apiUrl(`/chat/api/conversations/${dialogId}`), {
+      const res = await apiFetch(apiUrl(`/chat/api/conversations/${dialogId}`), {
         method: 'DELETE',
         headers: authHeader,
       })
@@ -258,7 +259,7 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch(apiUrl('/chat/api/conversations'), {
+      const res = await apiFetch(apiUrl('/chat/api/conversations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),

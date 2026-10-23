@@ -1,0 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")"
+if [ ! -x .venv/bin/python ]; then
+  echo "请先创建虚拟环境并安装依赖，参见 README.md 的本地启动章节。"
+  exit 1
+fi
+exec .venv/bin/python scripts/local.py start

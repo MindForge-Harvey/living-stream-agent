@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -10,7 +10,7 @@ router = APIRouter(prefix="/admin", tags=["管理员"])
 security = HTTPBearer()
 
 
-def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Admin:
+def get_current_admin(request: Request, credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> Admin:
     """获取当前登录的管理员"""
     token = credentials.credentials
     payload = decode_token(token)
@@ -29,6 +29,9 @@ def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(securi
         raise HTTPException(status_code=401, detail="管理员不存在")
     if not admin.is_active:
         raise HTTPException(status_code=401, detail="管理员账号已被禁用")
+    identity = getattr(request.state, "portal_identity", None)
+    if identity and admin.bound_user_id != identity["uid"]:
+        raise HTTPException(status_code=403, detail="管理员身份与门户账号不匹配")
     return admin
 
 

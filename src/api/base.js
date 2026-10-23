@@ -14,6 +14,7 @@
 export function apiPrefix() {
   if (typeof window === 'undefined') return ''
   const pathname = window.location.pathname || ''
+  if (/^\/living-stream-agent(?:\/|$)/.test(pathname)) return '/living-stream-agent'
   const match = pathname.match(/^(\/snsst\/ChannelApp)(?:\/|$)/i)
   return match ? match[1] : ''
 }
@@ -27,4 +28,15 @@ export function apiPrefix() {
  */
 export function apiUrl(path) {
   return apiPrefix() + path
+}
+
+export async function apiFetch(input, options = {}) {
+  const headers = new Headers(options.headers)
+  headers.set('X-Living-Stream-Request', '1')
+  let user
+  try { user = JSON.parse(localStorage.getItem('livingStreamPortalUser') || 'null') } catch {}
+  if (user?.platformUserId) headers.set('X-Portal-User', user.platformUserId)
+  const response = await fetch(input, { ...options, headers, credentials: 'same-origin' })
+  if (response.status === 401 && user) window.dispatchEvent(new Event('living-stream-auth-check'))
+  return response
 }

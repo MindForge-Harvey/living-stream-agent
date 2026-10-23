@@ -1,7 +1,7 @@
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 import httpx
 
 logger = logging.getLogger("security.audit")
@@ -22,6 +22,33 @@ from app.core.security import create_access_token, get_current_user, verify_pass
 from app.models.models import PlatformUser, User, utc_now
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+
+@router.get("/check")
+async def check_portal_session(request: Request):
+    from app.core.portal import portal_identity
+    await portal_identity(request)
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/session")
+async def get_session(request: Request, db: Session = Depends(get_db)):
+    if not settings.PORTAL_AUTH_URL:
+        return {"mode": "platform"}
+    from app.core.portal import portal_identity
+    identity = await portal_identity(request)
+    uid = identity["uid"]
+    user = db.query(PlatformUser).filter(PlatformUser.platform_user_id == uid).first()
+    if not user:
+        user = PlatformUser(platform_user_id=uid)
+        db.add(user)
+    user.staff_name = identity.get("displayName") or identity.get("username") or uid
+    user.staff_code = identity.get("username") or ""
+    db.commit()
+    return {"mode": "portal", "authenticated": True, "userInfo": {
+        "platformUserId": uid, "authMode": "portal", "platformToken": "",
+        "staffName": user.staff_name, "staffCode": user.staff_code,
+    }}
 
 
 class UserLoginRequest(BaseModel):
@@ -202,6 +229,8 @@ async def login(req: UserLoginRequest, request: Request, db: Session = Depends(g
 @router.post("/test-token", response_model=UserLoginResponse)
 async def issue_test_token(req: TestTokenRequest, request: Request, db: Session = Depends(get_db)):
     """测试平台模式下签发普通用户 token。"""
+    if settings.PORTAL_AUTH_URL:
+        raise HTTPException(404, "门户模式不提供平台 Token 登录")
     ip = get_client_ip(request)
     user_id = req.userId.strip()
     ensure_not_limited("platform_token", user_id, ip)

@@ -3,7 +3,20 @@ import styles from './Sidebar.module.css'
 export default function Sidebar({ dialogs, activeDialogId, onSelectDialog, onNewChat, onDeleteDialog, onClose, open, connectionStatus, userInfo }) {
   const userId = userInfo?.platformUserId
   const staffName = userInfo?.staffName
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (userInfo?.authMode === 'portal') {
+      const response = await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+      if (!response.ok) return
+      const data = await response.json()
+      localStorage.removeItem('livingStreamPortalUser')
+      localStorage.removeItem('adminToken')
+      localStorage.removeItem('superAdminToken')
+      const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('agent-showcase-auth') : null
+      channel?.postMessage({ type: 'logout' })
+      channel?.close()
+      window.location.assign(data.logoutUrl || '/')
+      return
+    }
     localStorage.removeItem('userInfo')
     localStorage.setItem('logoutFlag', '1')
     window.location.reload()

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { authHeaders, exportScript } from '../../api/index'
-import { apiUrl } from '../../api/base'
+import { apiUrl, apiFetch } from '../../api/base'
 import { showToast } from '../Toast/Toast'
 import styles from './ChatHeader.module.css'
 
@@ -48,7 +48,7 @@ export default function ChatHeader({ tool, onBack, onClear, onMemory, onVersionH
 
     setEnteringAdmin(true)
     try {
-      const res = await fetch(apiUrl(`/chat/api/admin/auth-by-user?user_id=${encodeURIComponent(userId)}`), {
+      const res = await apiFetch(apiUrl(`/chat/api/admin/auth-by-user?user_id=${encodeURIComponent(userId)}`), {
         headers: authHeaders()
       })
       const data = await res.json().catch(() => ({}))
