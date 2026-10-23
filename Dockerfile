@@ -5,6 +5,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     default-libmysqlclient-dev \
+    default-mysql-client \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
@@ -14,24 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY backend/ ./backend/
-COPY dist/ ./dist/
+COPY deploy/migrations/ ./migrations/
 
-# Create init script
-RUN echo '#!/bin/bash\n\
-cd /app/backend\n\
-echo "Waiting for MySQL to be ready..."\n\
-for i in $(seq 1 30); do\n\
-  if python -c "import pymysql; pymysql.connect(host='\''mysql'\'', port=3306, user='\''root'\'', password='\''${MYSQL_PASSWORD:-living_stream_2024}'\'')" 2>/dev/null; then\n\
-    echo "MySQL is ready!"\n\
-    break\n\
-  fi\n\
-  echo "Attempt $i: MySQL not ready, waiting..."\n\
-  sleep 2\n\
-done\n\
-python -c "from app.core.database import engine, Base; from app.models import models; Base.metadata.create_all(bind=engine); print(\"Database tables created.\")"\n\
-python init_db.py\n\
-exec uvicorn app.main:app --host 0.0.0.0 --port 3001\n\
-' > /app/init.sh && chmod +x /app/init.sh
+# Copy init script
+COPY backend/init.sh /app/init.sh
+RUN chmod +x /app/init.sh
 
 EXPOSE 3001
 

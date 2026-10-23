@@ -1,10 +1,11 @@
 import styles from './Sidebar.module.css'
 
-export default function Sidebar({ dialogs, activeDialogId, onSelectDialog, onNewChat, onDeleteDialog, open, connectionStatus, userInfo }) {
+export default function Sidebar({ dialogs, activeDialogId, onSelectDialog, onNewChat, onDeleteDialog, onClose, open, connectionStatus, userInfo }) {
   const userId = userInfo?.platformUserId
   const staffName = userInfo?.staffName
   const handleLogout = () => {
     localStorage.removeItem('userInfo')
+    localStorage.setItem('logoutFlag', '1')
     window.location.reload()
   }
 
@@ -59,17 +60,25 @@ export default function Sidebar({ dialogs, activeDialogId, onSelectDialog, onNew
   return (
     <aside className={`${styles.sidebar} ${open ? styles.open : ''}`}>
       <div className={styles.header}>
-        <div className={styles.logo}>
-          <div className={styles.logoIcon}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polygon points="12 2 2 7 12 12 22 7 12 2" />
-              <polyline points="2 17 12 22 22 17" />
-              <polyline points="2 12 12 17 22 12" />
+        <div className={styles.headerTop}>
+          <div className={styles.logo}>
+            <div className={styles.logoIcon}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+            </div>
+            <div>
+              <div className={styles.logoText}>直播脚本生成智能体</div>
+            </div>
+          </div>
+          <button className={styles.closeBtn} onClick={onClose} aria-label="返回聊天">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
             </svg>
-          </div>
-          <div>
-            <div className={styles.logoText}>直播脚本生成智能体</div>
-          </div>
+          </button>
         </div>
         <button className={styles.newChatBtn} onClick={onNewChat}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

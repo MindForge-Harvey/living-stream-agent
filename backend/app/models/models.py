@@ -146,3 +146,15 @@ class ScoringConfig(Base):
     is_default = Column(Boolean, default=False)  # 是否默认配置
     created_at = Column(DateTime, default=utc_now)
     updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class SuggestedQuestion(Base):
+    """首页推荐问题"""
+    __tablename__ = "suggested_questions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    content = Column(String(200), nullable=False)
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=utc_now)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)

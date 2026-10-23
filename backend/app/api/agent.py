@@ -15,13 +15,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from markitdown import MarkItDown
 
+from app.core.config import settings
 from app.core.database import get_db, SessionLocal
 from app.core.security import get_current_user
+from app.core.time_utils import format_shanghai_display
 from app.services.llm_service import llm_service
 from app.services.forbidden_word_service import forbidden_word_service
 from app.services.memory_service import memory_service
-from app.core.time_utils import format_shanghai_display
-from app.models.models import Dialog, DialogMessage, UserMemory, ScriptVersion
+from app.models.models import Dialog, DialogMessage, UserMemory, ScriptVersion, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -37,10 +38,20 @@ async def parse_upload_file(file: UploadFile) -> tuple[str, str]:
 
     # 获取文件名，确保不为 None
     filename = file.filename or "unknown"
-    
+
     try:
-        content = await file.read()
         filename_lower = filename.lower()
+        suffix = os.path.splitext(filename_lower)[1]
+        allowed_extensions = _allowed_upload_extensions()
+
+        if suffix not in allowed_extensions:
+            raise HTTPException(status_code=400, detail="不支持的文件类型")
+
+        content_length = _parse_content_length(file.headers.get("content-length") if file.headers else None)
+        if content_length and content_length > settings.MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="上传文件超过大小限制")
+
+        content = await _read_upload_limited(file)
 
         if filename_lower.endswith('.txt'):
             try:
@@ -53,10 +64,6 @@ async def parse_upload_file(file: UploadFile) -> tuple[str, str]:
                     text = content.decode('latin-1')
             return _truncate_content(text), filename
 
-        suffix = os.path.splitext(filename_lower)[1]
-        if not suffix:
-            suffix = ".tmp"
-            
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(content)
             tmp_path = tmp.name
@@ -76,9 +83,43 @@ async def parse_upload_file(file: UploadFile) -> tuple[str, str]:
             except OSError:
                 pass  # 临时文件删除失败不影响主流程
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"文件解析失败: {e}")
         return f"[文件解析失败: {str(e)}]", filename
+
+
+def _allowed_upload_extensions() -> set[str]:
+    return {
+        item.strip().lower()
+        for item in settings.ALLOWED_UPLOAD_EXTENSIONS.split(",")
+        if item.strip()
+    }
+
+
+def _parse_content_length(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
+
+
+async def _read_upload_limited(file: UploadFile) -> bytes:
+    """按 MAX_UPLOAD_BYTES 限制分块读取上传文件。"""
+    chunks = []
+    total_size = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > settings.MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="上传文件超过大小限制")
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 # 文件内容最大字符数（约100k）
@@ -186,11 +227,60 @@ def _load_owned_history(db: Session, dialog_id: Optional[str], user_id: str) -> 
     return _build_history_with_metadata(msgs[-20:])
 
 
-def _load_user_memories(db: Session, user_id: str) -> list:
+def _load_user_memories(db: Session, user_id: str) -> list[str]:
     """加载当前用户记忆。"""
-    return db.query(UserMemory).filter(
+    memories = db.query(UserMemory.content).filter(
         UserMemory.user_id == user_id
     ).order_by(UserMemory.created_at.desc()).all()
+    return [row[0] for row in memories if row[0]]
+
+
+def _ensure_dialog_for_request(db: Session, dialog_id: Optional[str], user_id: str, message: str) -> Dialog:
+    """获取当前用户对话；未传 dialogId 时为本次请求创建对话，保证统计不漏记。"""
+    if dialog_id:
+        return _get_owned_dialog(db, dialog_id, user_id)
+
+    title_source = (message or "新对话").strip() or "新对话"
+    dialog = Dialog(
+        id=uuid.uuid4().hex,
+        user_id=user_id,
+        tool_id="living-stream-agent",
+        tool_name="直播话术生成智能体",
+        title=title_source[:20] + ("..." if len(title_source) > 20 else ""),
+    )
+    db.add(dialog)
+    db.commit()
+    db.refresh(dialog)
+    return dialog
+
+
+def _record_user_request(
+    db: Session,
+    dialog: Dialog,
+    request_id: str,
+    content: str,
+    metadata: str = None,
+) -> None:
+    """记录一次真实用户请求，并同步更新管理员统计依赖的 request_count。"""
+    existing = db.query(DialogMessage).filter(
+        DialogMessage.dialog_id == dialog.id,
+        DialogMessage.request_id == request_id,
+        DialogMessage.role == "user",
+    ).first()
+    if not existing:
+        db.add(DialogMessage(
+            dialog_id=dialog.id,
+            request_id=request_id,
+            role="user",
+            content=content,
+            metadata_json=metadata,
+        ))
+        dialog.request_count = (dialog.request_count or 0) + 1
+
+    dialog.updated_at = utc_now()
+    if dialog.title == "新对话" and content:
+        dialog.title = content[:20] + ("..." if len(content) > 20 else "")
+    db.commit()
 
 
 @router.get("/status")
@@ -257,8 +347,6 @@ async def agent_endpoint(
             file_content, file_name = await parse_upload_file(file)
             logger.info(f"已解析文件: {file.filename}")
 
-        history = _load_owned_history(db, dialog_id, user_id)
-
         # 加载用户记忆
         user_memories = _load_user_memories(db, user_id)
 
@@ -272,6 +360,11 @@ async def agent_endpoint(
                 "file_content": file_content,
                 "file_name": file_name
             }, ensure_ascii=False)
+
+        dialog = _ensure_dialog_for_request(db, dialog_id, user_id, message)
+        dialog_id = dialog.id
+        history = _load_owned_history(db, dialog_id, user_id)
+        _record_user_request(db, dialog, request_id, message, file_metadata)
 
         async def generate_stream():
             gen_db = SessionLocal()
@@ -519,9 +612,6 @@ async def generate_script(
     if not message and not file_content:
         raise HTTPException(status_code=400, detail="请提供产品信息或上传相关文件")
 
-    # 加载对话历史
-    history = _load_owned_history(db, dialog_id, user_id)
-
     # 加载用户记忆
     user_memories = _load_user_memories(db, user_id)
 
@@ -535,6 +625,11 @@ async def generate_script(
             "file_content": file_content,
             "file_name": file_name
         }, ensure_ascii=False)
+
+    dialog = _ensure_dialog_for_request(db, dialog_id, user_id, message)
+    dialog_id = dialog.id
+    history = _load_owned_history(db, dialog_id, user_id)
+    _record_user_request(db, dialog, request_id, message, file_metadata)
 
     async def generate_stream():
         gen_db = SessionLocal()
@@ -590,14 +685,16 @@ async def score_script(
     if not script:
         raise HTTPException(status_code=400, detail="请提供要评分的直播脚本")
 
-    # 加载对话历史
-    history = _load_owned_history(db, dialog_id, user_id)
-
     # 加载用户记忆
     user_memories = _load_user_memories(db, user_id)
 
     # 生成请求ID
     request_id = str(uuid.uuid4())[:8]
+
+    dialog = _ensure_dialog_for_request(db, dialog_id, user_id, script)
+    dialog_id = dialog.id
+    history = _load_owned_history(db, dialog_id, user_id)
+    _record_user_request(db, dialog, request_id, script)
 
     async def score_stream():
         gen_db = SessionLocal()
@@ -651,14 +748,16 @@ async def revise_script(
     if not script:
         raise HTTPException(status_code=400, detail="请提供要订正的直播脚本")
 
-    # 加载对话历史
-    history = _load_owned_history(db, dialog_id, user_id)
-
     # 加载用户记忆
     user_memories = _load_user_memories(db, user_id)
 
     # 生成请求ID
     request_id = str(uuid.uuid4())[:8]
+
+    dialog = _ensure_dialog_for_request(db, dialog_id, user_id, script)
+    dialog_id = dialog.id
+    history = _load_owned_history(db, dialog_id, user_id)
+    _record_user_request(db, dialog, request_id, script)
 
     async def revise_stream():
         gen_db = SessionLocal()

@@ -2,22 +2,24 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 import hashlib
 
+import bcrypt
 from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
 security = HTTPBearer()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """验证密码，支持 bcrypt 和旧 SHA256 格式（向后兼容）"""
     try:
-        if hashed_password.startswith('$2') and pwd_context.identify(hashed_password):
-            return pwd_context.verify(plain_password, hashed_password)
+        if hashed_password.startswith("$2"):
+            return bcrypt.checkpw(
+                plain_password.encode("utf-8"),
+                hashed_password.encode("utf-8"),
+            )
     except Exception:
         pass
     # 向后兼容旧的 SHA256 格式
@@ -27,7 +29,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     """生成密码哈希（使用 bcrypt）"""
-    return pwd_context.hash(password)
+    password_bytes = password.encode("utf-8")
+    if len(password_bytes) > 72:
+        raise ValueError("密码过长，bcrypt 最多支持 72 bytes")
+    return bcrypt.hashpw(password_bytes, bcrypt.gensalt()).decode("utf-8")
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

@@ -1,7 +1,5 @@
 import logging
 
-from app.models.models import UserMemory
-
 logger = logging.getLogger(__name__)
 
 MEMORY_EXTRACT_PROMPT = """请从用户的输入中提取需要长期记忆的信息要点，直接输出精炼后的记忆内容。
@@ -15,14 +13,18 @@ MEMORY_EXTRACT_PROMPT = """请从用户的输入中提取需要长期记忆的�
 直接输出记忆内容，不要解释。"""
 
 
-def build_memory_prompt(memories: list[UserMemory]) -> str:
+def build_memory_prompt(memories: list[str]) -> str:
     """构建用户记忆提示段落，注入到 LLM system prompt"""
     if not memories:
         return ""
 
     lines = []
-    for m in memories:
-        lines.append(f"- {m.content}")
+    for content in memories:
+        if content:
+            lines.append(f"- {content}")
+
+    if not lines:
+        return ""
 
     return (
         "\n\n【用户长期记忆】\n"

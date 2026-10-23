@@ -283,3 +283,68 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+@media (max-width: 768px) {
+  .overlay {
+    align-items: stretch;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    min-height: 100%;
+    border-radius: 0;
+  }
+
+  .header {
+    padding: 12px 14px;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .header h3 {
+    font-size: 16px;
+  }
+
+  .headerActions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .content {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-height: 34vh;
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .preview {
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .previewHeader,
+  .diffHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .diffContent {
+    overflow-x: auto;
+  }
+
+  .diffLine {
+    min-width: 620px;
+  }
+
+  .compareBtn,
+  .closeBtn {
+    min-height: 40px;
+  }
+}

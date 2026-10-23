@@ -34,3 +34,13 @@ Thumbs.db
 
 # Docker
 docker-compose.override.yml
+
+# 打包文件/产物
+*.tar.gz
+*.tgz
+
+# 数据库导出/备份
+deploy/backups/
+deploy/migrations/
+output/
+deploy/living_stream_agent_server_0910.sql

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import { apiUrl } from '../../api/base'
 import styles from './Admin.module.css'
 
 function MarkdownContent({ content }) {
@@ -67,6 +68,8 @@ export default function AdminPage() {
     prompt_template: '',
     is_default: false
   })
+  const [suggestedQuestionFormData, setSuggestedQuestionFormData] = useState(['', '', ''])
+  const [savingSuggestedQuestions, setSavingSuggestedQuestions] = useState(false)
 
   const debounceTimerRef = useRef(null)
   const statsSortRef = useRef(statsSort)
@@ -79,7 +82,7 @@ export default function AdminPage() {
   useEffect(() => {
     const token = localStorage.getItem('adminToken')
     if (!token) {
-      navigate('/chat/')
+      navigate('/')
       return
     }
     loadStats()
@@ -87,6 +90,7 @@ export default function AdminPage() {
     loadForbiddenWords()
     loadTemplates()
     loadScoringConfigs()
+    loadSuggestedQuestions()
 
     // 组件卸载时清理防抖定时器
     return () => {
@@ -99,7 +103,7 @@ export default function AdminPage() {
   const loadForbiddenWords = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/forbidden-words', {
+      const res = await fetch(apiUrl('/chat/api/forbidden-words'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载违禁词失败')
@@ -113,7 +117,7 @@ export default function AdminPage() {
   const loadTemplates = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/templates', {
+      const res = await fetch(apiUrl('/chat/api/templates'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载模板失败')
@@ -127,7 +131,7 @@ export default function AdminPage() {
   const loadScoringConfigs = async () => {
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/scoring-configs', {
+      const res = await fetch(apiUrl('/chat/api/scoring-configs'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
       if (!res.ok) throw new Error('加载打分配置失败')
@@ -135,6 +139,71 @@ export default function AdminPage() {
       setScoringConfigs(data)
     } catch (err) {
       console.error('加载打分配置失败:', err)
+    }
+  }
+
+  const loadSuggestedQuestions = async () => {
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(apiUrl('/chat/api/suggested-questions'), {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      })
+      if (!res.ok) throw new Error('加载推荐问题失败')
+      const data = await res.json()
+      const nextQuestions = ['', '', '']
+      ;(data || []).slice(0, 3).forEach((item, index) => {
+        nextQuestions[index] = item.content || ''
+      })
+      setSuggestedQuestionFormData(nextQuestions)
+    } catch (err) {
+      console.error('加载推荐问题失败:', err)
+    }
+  }
+
+  const handleSuggestedQuestionChange = (index, value) => {
+    setSuggestedQuestionFormData(prev => {
+      const next = [...prev]
+      next[index] = value
+      return next
+    })
+  }
+
+  const handleSaveSuggestedQuestions = async () => {
+    const questions = suggestedQuestionFormData.map(item => item.trim()).filter(Boolean)
+    const tooLong = questions.find(item => item.length > 100)
+    if (tooLong) {
+      alert('每个推荐问题不能超过 100 个字符')
+      return
+    }
+
+    setSavingSuggestedQuestions(true)
+    try {
+      const token = localStorage.getItem('adminToken')
+      const res = await fetch(apiUrl('/chat/api/suggested-questions'), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ questions })
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        const nextQuestions = ['', '', '']
+        ;(data || []).slice(0, 3).forEach((item, index) => {
+          nextQuestions[index] = item.content || ''
+        })
+        setSuggestedQuestionFormData(nextQuestions)
+        alert('推荐问题已保存')
+      } else {
+        const err = await res.json()
+        alert(err.detail || '保存失败')
+      }
+    } catch (err) {
+      alert('保存失败: ' + err.message)
+    } finally {
+      setSavingSuggestedQuestions(false)
     }
   }
 
@@ -147,8 +216,8 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const url = templateEditItem 
-        ? `/chat/api/templates/${templateEditItem.id}`
-        : '/chat/api/templates'
+        ? apiUrl(`/chat/api/templates/${templateEditItem.id}`)
+        : apiUrl('/chat/api/templates')
       const method = templateEditItem ? 'PUT' : 'POST'
 
       const res = await fetch(url, {
@@ -182,7 +251,7 @@ export default function AdminPage() {
 
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(`/chat/api/templates/${id}`, {
+      const res = await fetch(apiUrl(`/chat/api/templates/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -218,8 +287,8 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const url = scoringConfigEditItem 
-        ? `/chat/api/scoring-configs/${scoringConfigEditItem.id}`
-        : '/chat/api/scoring-configs'
+        ? apiUrl(`/chat/api/scoring-configs/${scoringConfigEditItem.id}`)
+        : apiUrl('/chat/api/scoring-configs')
       const method = scoringConfigEditItem ? 'PUT' : 'POST'
 
       const res = await fetch(url, {
@@ -250,7 +319,7 @@ export default function AdminPage() {
 
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(`/chat/api/scoring-configs/${id}`, {
+      const res = await fetch(apiUrl(`/chat/api/scoring-configs/${id}`), {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
@@ -293,8 +362,8 @@ export default function AdminPage() {
       params.set('pageSize', pageSize)
 
       const [overviewRes, usersRes] = await Promise.all([
-        fetch('/chat/api/admin/conversations/stats/overview', { headers }),
-        fetch(`/chat/api/admin/conversations/stats/users?${params}`, { headers }),
+        fetch(apiUrl('/chat/api/admin/conversations/stats/overview'), { headers }),
+        fetch(apiUrl(`/chat/api/admin/conversations/stats/users?${params}`), { headers }),
       ])
 
       const overview = overviewRes.ok ? await overviewRes.json() : null
@@ -311,7 +380,7 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
-      const res = await fetch('/chat/api/admin/conversations/stats/filters', { headers })
+      const res = await fetch(apiUrl('/chat/api/admin/conversations/stats/filters'), { headers })
       if (res.ok) {
         const data = await res.json()
         setFilterOptions(data)
@@ -366,7 +435,7 @@ export default function AdminPage() {
       params.set('sortBy', statsSort.sortBy)
       params.set('sortOrder', statsSort.sortOrder)
 
-      const res = await fetch(`/chat/api/admin/conversations/stats/users/export?${params}`, { headers })
+      const res = await fetch(apiUrl(`/chat/api/admin/conversations/stats/users/export?${params}`), { headers })
       if (res.ok) {
         const blob = await res.blob()
         const url = window.URL.createObjectURL(blob)
@@ -398,11 +467,14 @@ export default function AdminPage() {
     setLoadingDialogs(true)
     
     try {
-      const res = await fetch(`/chat/api/admin/conversations?userId=${userId}`, { headers })
+      const token = localStorage.getItem('adminToken')
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
+      const res = await fetch(apiUrl(`/chat/api/admin/conversations?userId=${encodeURIComponent(userId)}`), { headers })
       if (res.ok) {
         const data = await res.json()
         setUserDialogs(data.items || data)
       } else {
+        console.error('获取用户对话失败:', await res.text())
         setUserDialogs([])
       }
     } catch (err) {
@@ -418,11 +490,14 @@ export default function AdminPage() {
     setLoadingMessages(true)
     
     try {
-      const res = await fetch(`/chat/api/admin/conversations/${dialog.id}/messages`, { headers })
+      const token = localStorage.getItem('adminToken')
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {}
+      const res = await fetch(apiUrl(`/chat/api/admin/conversations/${dialog.id}/messages`), { headers })
       if (res.ok) {
         const data = await res.json()
         setDialogMessages(data)
       } else {
+        console.error('获取对话消息失败:', await res.text())
         setDialogMessages([])
       }
     } catch (err) {
@@ -450,7 +525,7 @@ export default function AdminPage() {
   const handleLogout = () => {
     localStorage.removeItem('adminToken')
     localStorage.removeItem('userInfo')
-    navigate('/chat/')
+    navigate('/')
   }
 
   const handleAddForbiddenWord = () => {
@@ -469,7 +544,7 @@ export default function AdminPage() {
     if (!confirm('确定删除此违禁词？')) return
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch(`/chat/api/forbidden-words/${id}`, { 
+      const res = await fetch(apiUrl(`/chat/api/forbidden-words/${id}`), { 
         method: 'DELETE',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
@@ -494,8 +569,8 @@ export default function AdminPage() {
     try {
       const token = localStorage.getItem('adminToken')
       const url = forbiddenWordEditItem 
-        ? `/chat/api/forbidden-words/${forbiddenWordEditItem.id}` 
-        : '/chat/api/forbidden-words'
+        ? apiUrl(`/chat/api/forbidden-words/${forbiddenWordEditItem.id}`) 
+        : apiUrl('/chat/api/forbidden-words')
       const method = forbiddenWordEditItem ? 'PUT' : 'POST'
 
       const res = await fetch(url, {
@@ -530,7 +605,7 @@ export default function AdminPage() {
       const formData = new FormData()
       formData.append('file', file)
 
-      const res = await fetch('/chat/api/forbidden-words/import', {
+      const res = await fetch(apiUrl('/chat/api/forbidden-words/import'), {
         method: 'POST',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {},
         body: formData
@@ -556,7 +631,7 @@ export default function AdminPage() {
     setDownloading(true)
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/forbidden-words/template', {
+      const res = await fetch(apiUrl('/chat/api/forbidden-words/template'), {
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
 
@@ -584,7 +659,7 @@ export default function AdminPage() {
     if (!confirm('确定清空所有违禁词？此操作不可恢复！')) return
     try {
       const token = localStorage.getItem('adminToken')
-      const res = await fetch('/chat/api/forbidden-words/batch/all', { 
+      const res = await fetch(apiUrl('/chat/api/forbidden-words/batch/all'), { 
         method: 'DELETE',
         headers: token ? { 'Authorization': `Bearer ${token}` } : {}
       })
@@ -604,6 +679,7 @@ export default function AdminPage() {
     { key: 'statistics', label: '用户使用统计', icon: '📊' },
     { key: 'forbidden', label: '违禁词配置', icon: '🚫' },
     { key: 'templates', label: '模板管理', icon: '📝' },
+    { key: 'suggestions', label: '推荐问题', icon: '💡' },
     { key: 'scoring', label: '打分配置', icon: '⭐' }
   ]
 
@@ -620,7 +696,7 @@ export default function AdminPage() {
           <h1 className={styles.title}>后台管理</h1>
         </div>
         <div className={styles.headerRight}>
-          <button className={styles.homeBtn} onClick={() => navigate('/chat/')}>返回对话</button>
+          <button className={styles.homeBtn} onClick={() => navigate('/')}>返回对话</button>
           <button className={styles.logoutBtn} onClick={handleLogout}>退出登录</button>
         </div>
       </header>
@@ -892,6 +968,42 @@ export default function AdminPage() {
             </>
           )}
 
+          {activeTab === 'suggestions' && (
+            <div className={styles.configContainer}>
+              <div className={styles.configHeader}>
+                <h3>推荐问题配置</h3>
+                <p className={styles.configDesc}>配置对话首页输入框下方展示的推荐问题。留空的项不会展示，最多展示 3 个。</p>
+              </div>
+
+              <div className={styles.configContent}>
+                {suggestedQuestionFormData.map((value, index) => (
+                  <div className={styles.field} key={index}>
+                    <label className={styles.label}>推荐问题 {index + 1}</label>
+                    <input
+                      className={styles.input}
+                      value={value}
+                      maxLength={100}
+                      onChange={(e) => handleSuggestedQuestionChange(index, e.target.value)}
+                      placeholder="留空则不展示"
+                    />
+                    <div className={styles.hint}>{value.trim().length}/100</div>
+                  </div>
+                ))}
+
+                <div className={styles.configActions}>
+                  <button
+                    type="button"
+                    className={styles.saveBtn}
+                    onClick={handleSaveSuggestedQuestions}
+                    disabled={savingSuggestedQuestions}
+                  >
+                    {savingSuggestedQuestions ? '保存中...' : '保存配置'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'scoring' && (
             <div className={styles.scoringContainer}>
               <div className={styles.scoringHeader}>
@@ -950,8 +1062,8 @@ export default function AdminPage() {
                 <div className={styles.statCard}>
                   <div className={styles.statIcon}>📨</div>
                   <div className={styles.statInfo}>
-                    <div className={styles.statValue}>{stats.overview?.totalMessages || 0}</div>
-                    <div className={styles.statLabel}>消息数</div>
+                    <div className={styles.statValue}>{stats.overview?.totalRequests ?? stats.overview?.totalMessages ?? 0}</div>
+                    <div className={styles.statLabel}>请求数</div>
                   </div>
                 </div>
               </div>
@@ -1034,7 +1146,7 @@ export default function AdminPage() {
                         <th className={styles.sortableTh} onClick={() => handleStatsSort('lanName')}>地市 {renderSortIcon('lanName')}</th>
                         <th className={styles.sortableTh} onClick={() => handleStatsSort('regionName')}>区县 {renderSortIcon('regionName')}</th>
                         <th className={styles.sortableTh} onClick={() => handleStatsSort('dialogCount')}>对话数 {renderSortIcon('dialogCount')}</th>
-                        <th className={styles.sortableTh} onClick={() => handleStatsSort('totalRequests')}>消息数 {renderSortIcon('totalRequests')}</th>
+                        <th className={styles.sortableTh} onClick={() => handleStatsSort('totalRequests')}>请求数 {renderSortIcon('totalRequests')}</th>
                         <th className={styles.sortableTh} onClick={() => handleStatsSort('firstUsed')}>首次使用 {renderSortIcon('firstUsed')}</th>
                         <th className={styles.sortableTh} onClick={() => handleStatsSort('lastUsed')}>最近使用 {renderSortIcon('lastUsed')}</th>
                       </tr>
@@ -1381,7 +1493,7 @@ export default function AdminPage() {
                             </div>
                             <div className={styles.dialogItemMeta}>
                               <span className={styles.dialogTool}>工具: {dialog.toolName}</span>
-                              <span className={styles.dialogCount}>消息数: {dialog.requestCount}</span>
+                              <span className={styles.dialogCount}>请求数: {dialog.requestCount}</span>
                             </div>
                           </div>
                         ))}

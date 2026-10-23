@@ -53,6 +53,9 @@ living-stream-agent/
 │   └── pages/                 # 页面
 ├── .env                        # 环境变量
 ├── docker-compose.yml          # Docker 部署
+├── Dockerfile                  # 后端镜像
+├── Dockerfile.frontend         # 前端镜像
+├── start                       # 容器启动脚本（重建镜像并启动）
 └── package.json                # 前端依赖
 ```
 
@@ -120,12 +123,15 @@ npm run dev:all
 ### Docker 部署
 
 ```bash
-# 构建并启动
-docker compose build
-docker compose up -d
+# 修改代码后重新构建镜像并以容器方式运行（推荐）
+./start
+
+# 常用参数
+./start --no-build   # 跳过前端构建，直接启动
+./start --clean      # 先停止并删除旧容器，再重建启动
 
 # 查看日志
-docker compose logs -f app
+docker compose logs -f backend
 
 # 停止服务
 docker compose down
@@ -138,9 +144,9 @@ docker compose down
 | `OPENAI_API_KEY` | OpenAI API 密钥 | - |
 | `OPENAI_BASE_URL` | OpenAI API 地址 | `http://host.docker.internal:8765/v1` |
 | `OPENAI_MODEL` | 模型名称 | `Deepseek-V4-Flash` |
-| `MYSQL_HOST` | MySQL 主机 | `mysql` |
-| `MYSQL_PORT` | MySQL 端口 | `3306` |
-| `MYSQL_USER` | MySQL 用户 | `root` |
+| `MYSQL_HOST` | MySQL 主机（容器内访问宿主机共享库用 `host.docker.internal`） | `localhost` |
+| `MYSQL_PORT` | MySQL 端口 | `3307` |
+| `MYSQL_USER` | MySQL 用户 | `living_stream_agent` |
 | `MYSQL_PASSWORD` | MySQL 密码 | - |
 | `MYSQL_DATABASE` | 数据库名 | `living_stream_agent` |
 | `SECRET_KEY` | JWT 密钥 | 自动生成 |

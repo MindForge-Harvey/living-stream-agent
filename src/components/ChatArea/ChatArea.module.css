@@ -44,3 +44,25 @@
   color: var(--primary);
   background: var(--primary-bg);
 }
+
+@media (max-width: 768px) {
+  .area {
+    padding: 14px 0 8px;
+  }
+
+  .messages {
+    max-width: none;
+    padding: 0 12px;
+  }
+
+  .suggestions {
+    padding-left: 0;
+    margin-top: 8px;
+  }
+
+  .chip {
+    min-height: 34px;
+    border-radius: 8px;
+    line-height: 1.35;
+  }
+}

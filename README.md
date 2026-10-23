@@ -1,151 +1,114 @@
-# Living Stream Agent - 直播脚本生成智能体
+# Living Stream Agent
 
-基于 OpenAI 兼容接口的直播脚本生成智能体系统。
-
-## 功能特性
-
-- 🎙️ 直播脚本生成（三步流程：生成 → 评估 → 优化）
-- ⭐ 脚本质量评估
-- ✨ 脚本订正优化
-- 💬 普通对话
-- 📁 文件上传解析（支持 .txt/.docx/.pdf/.xlsx）
-- 🚫 违禁词过滤
-- 📊 用户使用统计
-- 👥 管理后台
+直播脚本生成智能体，后端使用 FastAPI，前端使用 React/Vite，数据库使用外部共享 MySQL。
 
 ## 技术栈
 
-### 后端
-- Python 3.11
-- FastAPI
-- SQLAlchemy + MySQL
-- OpenAI SDK
-
-### 前端
-- React 19
-- Vite 6
-- React Router v7
-
-## Docker 部署（推荐）
-
-### 1. 配置环境变量
-
-编辑 `.env` 文件，修改以下配置：
-
-```env
-# OpenAI 配置
-OPENAI_API_KEY=your-api-key-here
-OPENAI_BASE_URL=http://host.docker.internal:8765/v1
-OPENAI_MODEL=any
-
-# MySQL 配置（默认即可）
-MYSQL_PASSWORD=living_stream_2024
-MYSQL_DATABASE=living_stream_agent
-```
-
-### 2. 构建并启动
-
-```bash
-# 构建镜像
-docker-compose build
-
-# 启动服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f app
-```
-
-### 3. 访问服务
-
-- **前端**: http://localhost:5172/chat/
-- **后端 API**: http://localhost:5172/chat/api/
-- **管理后台**: http://localhost:5172/chat/login
-
-### 4. 常用命令
-
-```bash
-# 停止服务
-docker-compose down
-
-# 重启服务
-docker-compose restart
-
-# 查看状态
-docker-compose ps
-
-# 进入容器
-docker exec -it living-stream-app bash
-```
-
-## 本地开发
-
-### 1. 安装依赖
-
-```bash
-# 后端
-cd backend
-pip install -r requirements.txt
-
-# 前端
-npm install
-```
-
-### 2. 初始化数据库
-
-```bash
-cd backend
-python init_db.py
-```
-
-### 3. 启动服务
-
-```bash
-npm run dev:all
-```
-
-## 默认账号
-
-- **管理员**: admin / admin123
+- **后端**: Python 3.11 + FastAPI + SQLAlchemy，JWT 认证
+- **前端**: React 19 + Vite + React Router v7 + CSS Modules
+- **LLM**: OpenAI 兼容接口
+- **数据库**: MySQL 8.0（外部共享库）
 
 ## 项目结构
 
 ```
 living-stream-agent/
-├── .env                    # 配置文件
-├── docker-compose.yml      # Docker 部署配置
-├── Dockerfile              # Docker 构建文件
-├── nginx.conf              # Nginx 配置
-├── backend/                # 后端代码
-│   ├── app/
-│   │   ├── main.py         # FastAPI 入口
-│   │   ├── core/           # 核心配置
-│   │   ├── models/         # 数据模型
-│   │   ├── api/            # API 路由
-│   │   └── services/       # 业务服务
-│   └── requirements.txt
-└── src/                    # 前端代码
-    ├── main.jsx
-    ├── App.jsx
-    ├── api/
-    ├── components/
-    └── pages/
+├── backend/                  # 后端代码
+├── src/                      # 前端代码（Vite -> dist）
+├── deploy/                   # 数据库迁移 SQL（Dockerfile 构建时复制）
+│   └── migrations/           # 表结构迁移脚本
+├── .env                      # 唯一配置源（gitignore）
+├── .env.example              # 配置模板
+├── docker-compose.yml        # 唯一编排文件
+├── Dockerfile                # 后端镜像
+├── Dockerfile.frontend       # 前端镜像（nginx）
+├── nginx.conf                # 前端反代配置
+└── start                     # 容器启动脚本
 ```
 
-## API 接口
+## 数据库
 
-### 智能体接口
-- `POST /chat/api/agent` - 直播话术生成智能体主端点
-- `POST /chat/api/agent/generate` - 生成直播脚本
-- `POST /chat/api/agent/score` - 脚本打分
-- `POST /chat/api/agent/revise` - 脚本订正
+应用连接**外部共享 MySQL**，连接参数在 `.env` 中配置：
 
-### 对话管理
-- `POST /chat/api/dialogs` - 创建对话
-- `GET /chat/api/dialogs` - 获取对话列表
-- `POST /chat/api/dialogs/message` - 保存消息
+| 变量 | 示例 |
+|------|------|
+| `MYSQL_HOST` | `host.docker.internal`（容器内访问宿主机共享库） |
+| `MYSQL_PORT` | `3307` |
+| `MYSQL_USER` | `living_stream_agent` |
+| `MYSQL_PASSWORD` | 共享库密码 |
+| `MYSQL_DATABASE` | `living_stream_agent` |
 
-### 管理接口
-- `POST /chat/api/admin/login` - 管理员登录
-- `GET /chat/api/dialogs/stats/*` - 统计接口
-- `GET/POST/PUT/DELETE /chat/api/forbidden-words` - 违禁词管理
+> 容器内无法通过 `127.0.0.1` 访问宿主机，需使用 `host.docker.internal`。
+
+表结构升级在容器启动时自动执行（`backend/app/core/migrations.py` + `deploy/migrations/*.sql`）。
+
+## 部署启动
+
+### 开发/本地（重新构建并启动）
+
+```bash
+./start              # 重建镜像并启动
+./start --no-build   # 跳过前端构建
+./start --clean      # 停止旧容器再启动
+```
+
+### 直接使用 docker compose
+
+```bash
+# 首次或代码变更后构建
+docker compose up -d --build
+
+# 仅启动已有镜像
+docker compose up -d
+
+# 移除旧孤儿容器
+docker compose up -d --remove-orphans
+```
+
+## 配置
+
+配置集中在项目根目录 `.env`（已 gitignore，不提交）。首次部署复制模板：
+
+```bash
+cp .env.example .env
+vi .env
+```
+
+至少需要配置：
+
+```env
+OPENAI_API_KEY=你的模型密钥
+OPENAI_BASE_URL=你的模型接口地址
+OPENAI_MODEL=你的模型名称
+MYSQL_HOST=共享库地址
+MYSQL_PORT=共享库端口
+MYSQL_USER=共享库用户
+MYSQL_PASSWORD=共享库密码
+MYSQL_DATABASE=living_stream_agent
+PLATFORM_ENTRY_TOKEN=平台入口 Token
+SUPER_ADMIN_INITIAL_PASSWORD=首次创建超级管理员密码
+```
+
+## 数据库表结构
+
+表结构升级会在容器启动时自动执行。新增表结构变更时，把 SQL 放到：
+
+```text
+deploy/migrations/00X_xxx.sql
+```
+
+然后重新构建并启动即可。
+
+## 访问地址
+
+- 主页面：`http://localhost:5172/chat/`
+- 超级管理员：`http://localhost:5172/chat/#/superlogin`
+
+## 常用命令
+
+```bash
+docker compose ps
+docker compose logs -f backend
+docker compose restart
+docker compose down
+```

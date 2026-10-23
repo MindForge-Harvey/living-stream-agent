@@ -36,9 +36,11 @@ CREATE TABLE `admins` (
   `hashed_password` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` tinyint(1) DEFAULT NULL,
   `is_superadmin` tinyint(1) DEFAULT NULL,
+  `bound_user_id` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `ix_admins_username` (`username`)
+  UNIQUE KEY `ix_admins_username` (`username`),
+  KEY `ix_admins_bound_user_id` (`bound_user_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -48,7 +50,6 @@ CREATE TABLE `admins` (
 
 LOCK TABLES `admins` WRITE;
 /*!40000 ALTER TABLE `admins` DISABLE KEYS */;
-INSERT INTO `admins` VALUES (1,'admin','8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918',1,1,'2026-06-22 04:33:42'),(2,'admin123','240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9',1,0,'2026-06-22 04:33:42');
 /*!40000 ALTER TABLE `admins` ENABLE KEYS */;
 UNLOCK TABLES;
 

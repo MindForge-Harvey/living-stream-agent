@@ -1,3 +1,5 @@
+import { apiUrl } from './base'
+
 /**
  * 调用直播话术生成智能体API
  * @param {string} dialogId - 对话ID
@@ -18,7 +20,7 @@ export async function callAgent(dialogId, message, file = null, onChunk = null, 
     formData.append('file', file)
   }
 
-  const res = await fetch('/chat/api/assistant', {
+  const res = await fetch(apiUrl('/chat/api/assistant'), {
     method: 'POST',
     headers: authHeaders(token),
     body: formData,
@@ -122,7 +124,7 @@ export function authHeaders(token = getUserToken()) {
 
 // 用户记忆相关 API
 export async function fetchMemories(userId) {
-  const res = await fetch('/chat/api/memories', {
+  const res = await fetch(apiUrl('/chat/api/memories'), {
     headers: authHeaders()
   })
   if (!res.ok) throw new Error('获取记忆失败')
@@ -130,7 +132,7 @@ export async function fetchMemories(userId) {
 }
 
 export async function createMemory(userId, content) {
-  const res = await fetch('/chat/api/memories', {
+  const res = await fetch(apiUrl('/chat/api/memories'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ content }),
@@ -140,7 +142,7 @@ export async function createMemory(userId, content) {
 }
 
 export async function updateMemory(memoryId, content) {
-  const res = await fetch(`/chat/api/memories/${memoryId}`, {
+  const res = await fetch(apiUrl(`/chat/api/memories/${memoryId}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ content }),
@@ -150,7 +152,7 @@ export async function updateMemory(memoryId, content) {
 }
 
 export async function deleteMemory(memoryId, userId) {
-  const res = await fetch(`/chat/api/memories/${memoryId}`, {
+  const res = await fetch(apiUrl(`/chat/api/memories/${memoryId}`), {
     method: 'DELETE',
     headers: authHeaders()
   })
@@ -162,14 +164,21 @@ export async function deleteMemory(memoryId, userId) {
 
 // 违禁词相关 API
 export async function fetchForbiddenWords() {
-  const res = await fetch('/chat/api/forbidden-words/public')
+  const res = await fetch(apiUrl('/chat/api/forbidden-words/public'))
   if (!res.ok) throw new Error('获取违禁词失败')
+  return res.json()
+}
+
+// 推荐问题相关 API
+export async function fetchSuggestedQuestions() {
+  const res = await fetch(apiUrl('/chat/api/suggested-questions/public'))
+  if (!res.ok) throw new Error('获取推荐问题失败')
   return res.json()
 }
 
 // 脚本模板相关 API
 export async function fetchTemplates(category = null, productType = null, userId = null) {
-  let url = userId ? '/chat/api/templates/mine' : '/chat/api/templates/public'
+  let url = userId ? apiUrl('/chat/api/templates/mine') : apiUrl('/chat/api/templates/public')
   const params = new URLSearchParams()
   if (category) params.append('category', category)
   if (productType) params.append('product_type', productType)
@@ -183,14 +192,14 @@ export async function fetchTemplates(category = null, productType = null, userId
 }
 
 export async function fetchTemplateById(templateId) {
-  const res = await fetch(`/chat/api/templates/${templateId}`)
+  const res = await fetch(apiUrl(`/chat/api/templates/${templateId}`))
   if (!res.ok) throw new Error('获取模板详情失败')
   return res.json()
 }
 
 // 用户级模板（无需管理员认证）
 export async function createUserTemplate(data, userId) {
-  const res = await fetch('/chat/api/templates/my', {
+  const res = await fetch(apiUrl('/chat/api/templates/my'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(data)
@@ -200,7 +209,7 @@ export async function createUserTemplate(data, userId) {
 }
 
 export async function updateUserTemplate(templateId, data, userId) {
-  const res = await fetch(`/chat/api/templates/my/${templateId}`, {
+  const res = await fetch(apiUrl(`/chat/api/templates/my/${templateId}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(data)
@@ -210,7 +219,7 @@ export async function updateUserTemplate(templateId, data, userId) {
 }
 
 export async function deleteUserTemplate(templateId, userId) {
-  const res = await fetch(`/chat/api/templates/my/${templateId}`, {
+  const res = await fetch(apiUrl(`/chat/api/templates/my/${templateId}`), {
     method: 'DELETE',
     headers: authHeaders()
   })
@@ -221,7 +230,7 @@ export async function deleteUserTemplate(templateId, userId) {
 // 管理员级模板（需管理员认证）
 export async function createTemplate(data) {
   const token = localStorage.getItem('adminToken')
-  const res = await fetch('/chat/api/templates', {
+  const res = await fetch(apiUrl('/chat/api/templates'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -235,7 +244,7 @@ export async function createTemplate(data) {
 
 export async function updateTemplate(templateId, data) {
   const token = localStorage.getItem('adminToken')
-  const res = await fetch(`/chat/api/templates/${templateId}`, {
+  const res = await fetch(apiUrl(`/chat/api/templates/${templateId}`), {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
@@ -249,7 +258,7 @@ export async function updateTemplate(templateId, data) {
 
 // 脚本版本相关 API
 export async function fetchScriptVersions(dialogId) {
-  const res = await fetch(`/chat/api/assistant/versions/${dialogId}`, {
+  const res = await fetch(apiUrl(`/chat/api/assistant/versions/${dialogId}`), {
     headers: authHeaders()
   })
   if (!res.ok) throw new Error('获取版本历史失败')
@@ -258,7 +267,7 @@ export async function fetchScriptVersions(dialogId) {
 
 // 导出功能 API
 export async function exportScript(dialogId, format = 'txt') {
-  const res = await fetch('/chat/api/export', {
+  const res = await fetch(apiUrl('/chat/api/export'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

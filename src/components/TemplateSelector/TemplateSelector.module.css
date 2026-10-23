@@ -259,6 +259,56 @@
   background: #1d4ed8;
 }
 
+@media (max-width: 768px) {
+  .overlay {
+    align-items: stretch;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: none;
+    max-height: none;
+    min-height: 100%;
+    border-radius: 0;
+  }
+
+  .header,
+  .filters,
+  .content {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .filterActions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .tabFilter,
+  .typeFilter {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 2px;
+  }
+
+  .tabBtn,
+  .typeBtn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .cardActions button,
+  .createBtn,
+  .closeBtn {
+    min-height: 40px;
+  }
+}
+
 /* Detail View */
 .detailView {
   display: flex;
@@ -448,4 +498,37 @@
 .formGroup textarea {
   resize: vertical;
   min-height: 200px;
+}
+
+@media (max-width: 768px) {
+  .detailHeader,
+  .formHeader {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .detailActions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .detailContent,
+  .formContent {
+    padding: 14px;
+  }
+
+  .detailTitle {
+    font-size: 18px;
+  }
+
+  .templateContent {
+    max-height: none;
+  }
+
+  .backBtn,
+  .editBtn,
+  .deleteBtn,
+  .saveBtn {
+    min-height: 40px;
+  }
 }

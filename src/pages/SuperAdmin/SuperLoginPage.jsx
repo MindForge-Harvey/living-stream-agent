@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiUrl } from '../../api/base'
 import styles from './SuperAdmin.module.css'
 
 export default function SuperLoginPage() {
@@ -15,7 +16,7 @@ export default function SuperLoginPage() {
     setLoading(true)
 
     try {
-      const res = await fetch('/api/super-admin/login', {
+      const res = await fetch(apiUrl('/api/super-admin/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })

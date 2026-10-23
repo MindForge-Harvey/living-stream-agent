@@ -10,8 +10,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app.core.database import engine, Base, SessionLocal
+from app.core.config import settings
 from app.core.security import get_password_hash
-from app.models.models import Admin, User, ScriptTemplate, ScoringConfig
+from app.models.models import Admin, User, ScriptTemplate, ScoringConfig, SuggestedQuestion
 
 
 # 默认打分配置
@@ -165,6 +166,12 @@ PRESET_TEMPLATES = [
     }
 ]
 
+DEFAULT_SUGGESTED_QUESTIONS = [
+    "帮我生成一段护肤品的直播脚本",
+    "对以下直播话术进行打分",
+    "优化这段直播话术",
+]
+
 
 def init_database():
     """初始化数据库"""
@@ -178,46 +185,41 @@ def init_database():
         # 检查是否已有超级管理员
         super_admin = db.query(Admin).filter(Admin.is_superadmin == True).first()
         if not super_admin:
-            # 检查是否存在 username="admin" 的普通管理员
-            existing_admin = db.query(Admin).filter(Admin.username == "admin").first()
-            if existing_admin:
-                # 将现有管理员升级为超级管理员
-                print("正在将现有管理员升级为超级管理员...")
-                existing_admin.is_superadmin = True
-                existing_admin.hashed_password = get_password_hash("admin")
-                db.commit()
-                print("超级管理员升级完成 (用户名: admin, 密码: admin)")
+            if not settings.SUPER_ADMIN_INITIAL_PASSWORD:
+                print("未设置 SUPER_ADMIN_INITIAL_PASSWORD，跳过超级管理员初始化")
+                print("请在 .env 中配置强口令后重新启动，或手动创建超级管理员")
             else:
-                # 创建新的超级管理员
-                print("正在创建超级管理员账号...")
-                super_admin = Admin(
-                    username="admin",
-                    hashed_password=get_password_hash("admin"),
-                    is_active=True,
-                    is_superadmin=True
-                )
-                db.add(super_admin)
-                db.commit()
-                print("超级管理员创建完成 (用户名: admin, 密码: admin)")
+                initial_password_hash = get_password_hash(settings.SUPER_ADMIN_INITIAL_PASSWORD)
+                # 检查是否存在 username="admin" 的普通管理员
+                existing_admin = db.query(Admin).filter(Admin.username == "admin").first()
+                if existing_admin:
+                    # 将现有管理员升级为超级管理员
+                    print("正在将现有管理员升级为超级管理员...")
+                    existing_admin.is_superadmin = True
+                    existing_admin.hashed_password = initial_password_hash
+                    db.commit()
+                    print("超级管理员升级完成 (用户名: admin, 密码来自 SUPER_ADMIN_INITIAL_PASSWORD)")
+                else:
+                    # 创建新的超级管理员
+                    print("正在创建超级管理员账号...")
+                    super_admin = Admin(
+                        username="admin",
+                        hashed_password=initial_password_hash,
+                        is_active=True,
+                        is_superadmin=True
+                    )
+                    db.add(super_admin)
+                    db.commit()
+                    print("超级管理员创建完成 (用户名: admin, 密码来自 SUPER_ADMIN_INITIAL_PASSWORD)")
         else:
             print("超级管理员账号已存在，跳过创建")
 
-        # 创建默认普通管理员（如果不存在）
+        # 普通管理员通过超级管理员后台绑定 userId 创建，不再初始化默认密码账号
         admin = db.query(Admin).filter(Admin.username == "admin", Admin.is_superadmin == False).first()
         if not admin:
-            # 检查是否需要创建其他普通管理员
             admin_count = db.query(Admin).filter(Admin.is_superadmin == False).count()
             if admin_count == 0:
-                print("正在创建默认管理员账号...")
-                admin = Admin(
-                    username="admin123",
-                    hashed_password=get_password_hash("admin123"),
-                    is_active=True,
-                    is_superadmin=False
-                )
-                db.add(admin)
-                db.commit()
-                print("默认管理员创建完成 (用户名: admin123, 密码: admin123)")
+                print("未创建默认普通管理员，请在超级管理员后台绑定 userId 创建管理员")
         else:
             print("管理员账号已存在，跳过创建")
 
@@ -262,6 +264,21 @@ def init_database():
             print("默认打分配置初始化完成")
         else:
             print("默认打分配置已存在，跳过初始化")
+
+        # 初始化推荐问题
+        print("正在初始化推荐问题...")
+        question_count = db.query(SuggestedQuestion).count()
+        if question_count == 0:
+            for index, content in enumerate(DEFAULT_SUGGESTED_QUESTIONS):
+                db.add(SuggestedQuestion(
+                    content=content,
+                    sort_order=index,
+                    is_active=True,
+                ))
+            db.commit()
+            print("推荐问题初始化完成")
+        else:
+            print("推荐问题已存在，跳过初始化")
 
     finally:
         db.close()

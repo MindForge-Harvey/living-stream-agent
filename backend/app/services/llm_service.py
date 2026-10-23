@@ -644,14 +644,19 @@ class LLMService:
         self,
         user_message: str,
         history: list[dict] = None,
-        memory_prompt: str = ""
+        memory_prompt: str = "",
+        file_content: str = None
     ) -> AsyncGenerator[str, None]:
         """普通对话（流式）"""
-        if is_prompt_injection_attempt(user_message):
+        if is_prompt_injection_attempt(user_message, file_content):
             yield PROMPT_INJECTION_REFUSAL
             return
 
-        messages = self._build_context_messages(user_message, history)
+        enhanced_message = user_message
+        if file_content:
+            enhanced_message = f"用户上传的文件内容：\n{file_content}\n\n用户需求：{user_message}"
+
+        messages = self._build_context_messages(enhanced_message, history)
         system_prompt = GENERAL_CHAT_PROMPT + memory_prompt
 
         async for chunk in self._stream_llm_call(
@@ -663,7 +668,7 @@ class LLMService:
 
         # 记忆自动提取：检查对话中是否有值得记忆的信息
         try:
-            memory_content = await self._auto_extract_memory(user_message, history)
+            memory_content = await self._auto_extract_memory(enhanced_message, history)
             if memory_content:
                 # 使用JSON格式传递记忆内容
                 memory_data = json.dumps({"type": "memory_save", "content": memory_content}, ensure_ascii=False)
@@ -808,7 +813,7 @@ class LLMService:
             return
 
         # 普通对话
-        async for chunk in self.general_chat_stream(user_message, history, memory_prompt):
+        async for chunk in self.general_chat_stream(user_message, history, memory_prompt, file_content):
             yield chunk
 
 

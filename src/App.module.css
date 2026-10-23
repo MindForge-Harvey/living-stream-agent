@@ -1,6 +1,8 @@
 .app {
   display: flex;
   height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .main {
@@ -65,4 +67,61 @@
   background: var(--bg-hover);
   border-color: var(--primary);
   color: var(--primary);
+}
+
+.sidebarOverlay {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .app {
+    position: relative;
+    width: 100%;
+  }
+
+  .main {
+    width: 100%;
+  }
+
+  .sidebarOverlay {
+    position: fixed;
+    inset: 0;
+    display: block;
+    padding: 0;
+    border: none;
+    background: rgba(15, 23, 42, 0.42);
+    z-index: 19;
+    cursor: pointer;
+  }
+
+  .welcome {
+    justify-content: flex-start;
+    padding: 28px 14px 18px;
+    overflow-y: auto;
+  }
+
+  .welcomeContent {
+    max-width: none;
+  }
+
+  .welcomeIcon {
+    font-size: 44px;
+  }
+
+  .welcome h2 {
+    margin-bottom: 22px;
+    font-size: 21px;
+  }
+
+  .suggestions {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .suggestionBtn {
+    max-width: 100%;
+    border-radius: 10px;
+    text-align: left;
+    line-height: 1.45;
+  }
 }

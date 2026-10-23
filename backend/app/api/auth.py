@@ -1,9 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+import secrets
+
+from fastapi import APIRouter, Depends, Request
+import httpx
+
+logger = logging.getLogger("security.audit")
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.core.database import get_db
 from app.core.config import settings
+from app.core.rate_limit import (
+    GENERIC_AUTH_ERROR,
+    ensure_not_limited,
+    get_client_ip,
+    record_auth_failure,
+    record_auth_success,
+    reject_auth_failure,
+)
 from app.core.security import create_access_token, get_current_user, verify_password
 from app.models.models import PlatformUser, User, utc_now
 
@@ -16,13 +30,16 @@ class UserLoginRequest(BaseModel):
 
 
 class TestTokenRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     userId: str
     platformToken: str = ""
-    lanName: str = ""
-    regionName: str = ""
-    staffCode: str = ""
-    staffName: str = ""
-    staffPosType: str = ""
+    lanName: str = Field(default="", validation_alias=AliasChoices("lanName", "lan_name"))
+    regionName: str = Field(default="", validation_alias=AliasChoices("regionName", "region_name"))
+    staffCode: str = Field(default="", validation_alias=AliasChoices("staffCode", "staff_code"))
+    staffName: str = Field(default="", validation_alias=AliasChoices("staffName", "staff_name"))
+    staffPosType: str = Field(default="", validation_alias=AliasChoices("staffPosType", "staff_pos_type"))
+    staffCodeBoss: str = Field(default="", validation_alias=AliasChoices("staffCodeBoss", "staff_code_boss"))
 
 
 class UserLoginResponse(BaseModel):
@@ -37,23 +54,138 @@ class UserLoginResponse(BaseModel):
     error: str | None = None
 
 
+def _clean_code(value) -> str:
+    """Normalize IAM/user code values for exact business-code comparison."""
+    return str(value or "").strip()
+
+
+def _extract_iam_staff_code_candidates(data: dict) -> set[str]:
+    """Extract possible staff-code fields from IAM response.
+
+    The mobile IAM document mentions staff_code, while the sample response
+    exposes acctNo/subAcctNo. Keep the parser tolerant so deployment-side
+    field naming differences do not require a code change.
+    """
+    if not isinstance(data, dict):
+        return set()
+
+    candidates = {
+        data.get("staff_code"),
+        data.get("staffCode"),
+        data.get("staff_code_boss"),
+        data.get("staffCodeBoss"),
+        data.get("acctNo"),
+        data.get("subAcctNo"),
+    }
+    return {_clean_code(value) for value in candidates if _clean_code(value)}
+
+
+async def _verify_mobile_ticket(req: TestTokenRequest, request: Request) -> None:
+    """Validate mobile IAM ticket and compare returned code with BOSS code."""
+    ip = get_client_ip(request)
+    user_id = req.userId.strip()
+    ticket = req.platformToken.strip()
+    staff_code_boss = req.staffCodeBoss.strip()
+
+    logger.info(
+        "IAM_VERIFY request ip=%s userId=%s ticket_len=%d ticket_head=%s staffCodeBoss=%s "
+        "lanName=%s regionName=%s staffCode=%s staffName=%s staffPosType=%s",
+        ip,
+        user_id,
+        len(ticket),
+        ticket[:16],
+        staff_code_boss,
+        req.lanName,
+        req.regionName,
+        req.staffCode,
+        req.staffName,
+        req.staffPosType,
+    )
+
+    if not ticket:
+        reject_auth_failure("platform_token", user_id, ip, "empty_ticket")
+    if not staff_code_boss:
+        reject_auth_failure("platform_token", user_id, ip, "empty_staff_code_boss")
+
+    payload = {
+        "ticket": ticket,
+        "appCode": settings.IAM_APP_CODE,
+    }
+    logger.info(
+        "IAM_VERIFY calling url=%s payload(appCode=%s ticket_len=%d)",
+        settings.IAM_CHECK_TICKET_URL,
+        payload["appCode"],
+        len(payload["ticket"]),
+    )
+
+    body = None
+    try:
+        async with httpx.AsyncClient(timeout=settings.IAM_REQUEST_TIMEOUT_SECONDS) as client:
+            response = await client.post(settings.IAM_CHECK_TICKET_URL, json=payload)
+            logger.info(
+                "IAM_VERIFY http_status=%s content_type=%s body=%s",
+                getattr(response, "status_code", None),
+                response.headers.get("content-type"),
+                response.text,
+            )
+            response.raise_for_status()
+            body = response.json()
+    except Exception as exc:
+        logger.info(
+            "IAM_VERIFY exception type=%s msg=%s",
+            type(exc).__name__,
+            str(exc),
+        )
+        reject_auth_failure("platform_token", user_id, ip, "iam_check_failed")
+
+    logger.info(
+        "IAM_VERIFY parsed body code=%s msg=%s data=%s",
+        body.get("code") if isinstance(body, dict) else None,
+        (body.get("msg") if isinstance(body, dict) else None),
+        (body.get("data") if isinstance(body, dict) else None),
+    )
+
+    if body.get("code") != "000000":
+        reject_auth_failure("platform_token", user_id, ip, "iam_rejected_ticket")
+
+    iam_data = body.get("data") or {}
+    iam_staff_codes = _extract_iam_staff_code_candidates(iam_data)
+    logger.info(
+        "IAM_VERIFY extracted staff_codes=%s staffCodeBoss=%s match=%s",
+        iam_staff_codes,
+        staff_code_boss,
+        staff_code_boss in iam_staff_codes,
+    )
+    if staff_code_boss not in iam_staff_codes:
+        reject_auth_failure("platform_token", user_id, ip, "staff_code_boss_mismatch")
+
+
 @router.post("/login", response_model=UserLoginResponse)
-async def login(req: UserLoginRequest, db: Session = Depends(get_db)):
+async def login(req: UserLoginRequest, request: Request, db: Session = Depends(get_db)):
     """用户登录（用户名+密码）"""
+    ip = get_client_ip(request)
+    identifier = req.username.strip()
+    ensure_not_limited("user_login", identifier, ip)
+
     user = db.query(User).filter(User.username == req.username).first()
 
     if not user:
-        return UserLoginResponse(success=False, error="用户不存在")
+        record_auth_failure("user_login", identifier, ip, "not_found")
+        return UserLoginResponse(success=False, error=GENERIC_AUTH_ERROR)
 
     if not user.hashed_password:
-        return UserLoginResponse(success=False, error="该账号未设置密码")
+        record_auth_failure("user_login", identifier, ip, "password_unset")
+        return UserLoginResponse(success=False, error=GENERIC_AUTH_ERROR)
 
     if not verify_password(req.password, user.hashed_password):
-        return UserLoginResponse(success=False, error="密码错误")
+        record_auth_failure("user_login", identifier, ip, "bad_password")
+        return UserLoginResponse(success=False, error=GENERIC_AUTH_ERROR)
 
     if not user.is_active:
-        return UserLoginResponse(success=False, error="账号已被禁用")
+        record_auth_failure("user_login", identifier, ip, "inactive")
+        return UserLoginResponse(success=False, error=GENERIC_AUTH_ERROR)
 
+    record_auth_success("user_login", identifier, ip)
     token = create_access_token(data={"sub": user.id})
     return UserLoginResponse(
         success=True,
@@ -68,14 +200,21 @@ async def login(req: UserLoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/test-token", response_model=UserLoginResponse)
-async def issue_test_token(req: TestTokenRequest, db: Session = Depends(get_db)):
+async def issue_test_token(req: TestTokenRequest, request: Request, db: Session = Depends(get_db)):
     """测试平台模式下签发普通用户 token。"""
-    if req.platformToken != settings.PLATFORM_ENTRY_TOKEN:
-        raise HTTPException(status_code=404, detail="接口不存在")
-
+    ip = get_client_ip(request)
     user_id = req.userId.strip()
+    ensure_not_limited("platform_token", user_id, ip)
+
     if not user_id:
-        raise HTTPException(status_code=400, detail="userId 不能为空")
+        reject_auth_failure("platform_token", user_id, ip, "empty_user")
+
+    legacy_platform_token_ok = (
+        bool(settings.PLATFORM_ENTRY_TOKEN)
+        and secrets.compare_digest(req.platformToken, settings.PLATFORM_ENTRY_TOKEN)
+    )
+    if not legacy_platform_token_ok:
+        await _verify_mobile_ticket(req, request)
 
     platform_user = db.query(PlatformUser).filter(PlatformUser.platform_user_id == user_id).first()
     if not platform_user:
@@ -96,6 +235,7 @@ async def issue_test_token(req: TestTokenRequest, db: Session = Depends(get_db))
         platform_user.staff_pos_type = req.staffPosType or platform_user.staff_pos_type
         platform_user.updated_at = utc_now()
     db.commit()
+    record_auth_success("platform_token", user_id, ip)
 
     token = create_access_token(data={"sub": user_id})
     return UserLoginResponse(

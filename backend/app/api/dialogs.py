@@ -2,12 +2,13 @@ import uuid
 import csv
 import io
 import logging
+from urllib.parse import quote
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import case, func, or_
 from pydantic import BaseModel, Field
 
 from app.core.database import get_db
@@ -29,6 +30,22 @@ def generate_dialog_id():
 def generate_request_id():
     """生成唯一 requestId"""
     return uuid.uuid4().hex
+
+
+def _dialog_user_message_counts_subquery(db: Session):
+    """按对话统计用户消息数，用于兼容历史 request_count 未同步的数据。"""
+    return db.query(
+        DialogMessage.dialog_id.label("dialog_id"),
+        func.sum(case((DialogMessage.role == "user", 1), else_=0)).label("user_message_count"),
+    ).group_by(DialogMessage.dialog_id).subquery()
+
+
+def _effective_request_count_expr(message_counts_subq):
+    """统一统计口径：一次用户请求计为 1，不把多段助手输出计入请求数。"""
+    return func.greatest(
+        func.coalesce(Dialog.request_count, 0),
+        func.coalesce(message_counts_subq.c.user_message_count, 0),
+    )
 
 
 class CreateDialogRequest(BaseModel):
@@ -119,7 +136,16 @@ async def list_dialogs(
     query = db.query(Dialog).filter(Dialog.user_id == user_id)
 
     total = query.count()
-    dialogs = query.order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
+    message_counts_subq = _dialog_user_message_counts_subquery(db)
+    effective_request_count = _effective_request_count_expr(message_counts_subq).label("effective_request_count")
+    rows = db.query(
+        Dialog,
+        effective_request_count,
+    ).outerjoin(
+        message_counts_subq, message_counts_subq.c.dialog_id == Dialog.id
+    ).filter(
+        Dialog.user_id == user_id
+    ).order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
 
     return {
         "items": [
@@ -129,11 +155,11 @@ async def list_dialogs(
                 "toolId": d.tool_id,
                 "toolName": d.tool_name,
                 "title": d.title,
-                "requestCount": d.request_count,
+                "requestCount": request_count or 0,
                 "createdAt": format_shanghai_iso(d.created_at),
                 "updatedAt": format_shanghai_iso(d.updated_at),
             }
-            for d in dialogs
+            for d, request_count in rows
         ],
         "total": total,
         "page": page,
@@ -187,12 +213,17 @@ async def save_message(
 
 def _build_user_stats_query(db, keyword, lan_name, region_name, staff_pos_type):
     """构建用户统计查询（共用逻辑）"""
+    message_counts_subq = _dialog_user_message_counts_subquery(db)
+    effective_request_count = _effective_request_count_expr(message_counts_subq)
+
     stats_subq = db.query(
         Dialog.user_id,
         func.count(Dialog.id).label("dialog_count"),
-        func.sum(Dialog.request_count).label("total_requests"),
+        func.sum(effective_request_count).label("total_requests"),
         func.min(Dialog.created_at).label("first_used"),
-        func.max(Dialog.updated_at).label("last_used"),
+        func.greatest(func.max(Dialog.updated_at), func.max(Dialog.created_at)).label("last_used"),
+    ).outerjoin(
+        message_counts_subq, message_counts_subq.c.dialog_id == Dialog.id
     ).group_by(Dialog.user_id).subquery()
 
     query = db.query(
@@ -244,22 +275,7 @@ def _format_user_stat(row):
     }
 
 
-@admin_router.get("/stats/users")
-async def get_user_stats(
-    keyword: Optional[str] = Query(None, description="搜索关键词（姓名/工号/用户ID）"),
-    lanName: Optional[str] = Query(None, description="地市筛选"),
-    regionName: Optional[str] = Query(None, description="区县筛选"),
-    staffPosType: Optional[str] = Query(None, description="岗位筛选"),
-    sortBy: Optional[str] = Query(None, description="排序字段"),
-    sortOrder: Optional[str] = Query("desc", description="排序方向: asc/desc"),
-    page: int = Query(1, ge=1, description="页码"),
-    pageSize: int = Query(10, ge=1, le=200, description="每页条数"),
-    db: Session = Depends(get_db),
-    _admin=Depends(get_current_admin),
-):
-    """获取用户使用统计（支持筛选、排序、分页）"""
-    query, stats_subq = _build_user_stats_query(db, keyword, lanName, regionName, staffPosType)
-
+def _apply_user_stats_sort(query, stats_subq, sort_by, sort_order):
     sort_map = {
         "dialogCount": stats_subq.c.dialog_count,
         "totalRequests": stats_subq.c.total_requests,
@@ -269,54 +285,38 @@ async def get_user_stats(
         "lanName": PlatformUser.lan_name,
         "regionName": PlatformUser.region_name,
     }
-    sort_col = sort_map.get(sortBy, stats_subq.c.dialog_count)
-    order = sort_col.desc() if sortOrder == "desc" else sort_col.asc()
-    query = query.order_by(order)
+    sort_col = sort_map.get(sort_by, stats_subq.c.dialog_count)
+    order = sort_col.desc() if sort_order == "desc" else sort_col.asc()
+    return query.order_by(order)
+
+
+def get_user_stats_payload(db, keyword, lan_name, region_name, staff_pos_type, sort_by, sort_order, page, page_size):
+    """获取用户使用统计数据，供管理员和超级管理员共用。"""
+    query, stats_subq = _build_user_stats_query(db, keyword, lan_name, region_name, staff_pos_type)
+    query = _apply_user_stats_sort(query, stats_subq, sort_by, sort_order)
 
     total = query.count()
-    rows = query.offset((page - 1) * pageSize).limit(pageSize).all()
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
 
     return {
         "items": [_format_user_stat(row) for row in rows],
         "total": total,
         "page": page,
-        "pageSize": pageSize,
-        "totalPages": (total + pageSize - 1) // pageSize,
+        "pageSize": page_size,
+        "totalPages": (total + page_size - 1) // page_size,
     }
 
 
-@admin_router.get("/stats/users/export")
-async def export_user_stats(
-    keyword: Optional[str] = Query(None),
-    lanName: Optional[str] = Query(None),
-    regionName: Optional[str] = Query(None),
-    staffPosType: Optional[str] = Query(None),
-    sortBy: Optional[str] = Query(None),
-    sortOrder: Optional[str] = Query("desc"),
-    db: Session = Depends(get_db),
-    _admin=Depends(get_current_admin),
-):
-    """导出用户使用统计为 CSV"""
-    query, stats_subq = _build_user_stats_query(db, keyword, lanName, regionName, staffPosType)
-
-    sort_map = {
-        "dialogCount": stats_subq.c.dialog_count,
-        "totalRequests": stats_subq.c.total_requests,
-        "firstUsed": stats_subq.c.first_used,
-        "lastUsed": stats_subq.c.last_used,
-        "staffName": PlatformUser.staff_name,
-        "lanName": PlatformUser.lan_name,
-        "regionName": PlatformUser.region_name,
-    }
-    sort_col = sort_map.get(sortBy, stats_subq.c.dialog_count)
-    order = sort_col.desc() if sortOrder == "desc" else sort_col.asc()
-    rows = query.order_by(order).all()
+def export_user_stats_response(db, keyword, lan_name, region_name, staff_pos_type, sort_by, sort_order):
+    """导出用户使用统计 CSV，供管理员和超级管理员共用。"""
+    query, stats_subq = _build_user_stats_query(db, keyword, lan_name, region_name, staff_pos_type)
+    rows = _apply_user_stats_sort(query, stats_subq, sort_by, sort_order).all()
 
     def generate():
         buffer = io.StringIO()
         buffer.write('\ufeff')
         writer = csv.writer(buffer)
-        writer.writerow(["用户ID", "姓名", "工号", "岗位", "地市", "区县", "对话数", "消息数", "首次使用", "最近使用"])
+        writer.writerow(["用户ID", "姓名", "工号", "岗位", "地市", "区县", "对话数", "请求数", "首次使用", "最近使用"])
         yield buffer.getvalue()
         buffer.seek(0)
         buffer.truncate(0)
@@ -337,17 +337,24 @@ async def export_user_stats(
             buffer.seek(0)
             buffer.truncate(0)
 
-    filename = f"用户使用统计_{shanghai_now().strftime('%Y%m%d_%H%M%S')}.csv"
+    timestamp = shanghai_now().strftime('%Y%m%d_%H%M%S')
+    filename = f"用户使用统计_{timestamp}.csv"
+    ascii_filename = f"user_usage_stats_{timestamp}.csv"
+    encoded_filename = quote(filename)
     return StreamingResponse(
         generate(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename={ascii_filename}; "
+                f"filename*=UTF-8''{encoded_filename}"
+            )
+        },
     )
 
 
-@admin_router.get("/stats/filters")
-async def get_stats_filter_options(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
-    """获取筛选下拉选项"""
+def get_stats_filter_options_payload(db):
+    """获取统计筛选项，供管理员和超级管理员共用。"""
     lan_names = [r[0] for r in db.query(PlatformUser.lan_name).distinct().filter(PlatformUser.lan_name != "").all()]
     region_names = [r[0] for r in db.query(PlatformUser.region_name).distinct().filter(PlatformUser.region_name != "").all()]
     staff_pos_types = [r[0] for r in db.query(PlatformUser.staff_pos_type).distinct().filter(PlatformUser.staff_pos_type != "").all()]
@@ -358,18 +365,69 @@ async def get_stats_filter_options(db: Session = Depends(get_db), _admin=Depends
     }
 
 
-@admin_router.get("/stats/overview")
-async def get_overview_stats(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
-    """获取总览统计"""
+def get_overview_stats_payload(db):
+    """获取总览统计，供管理员和超级管理员共用。"""
+    message_counts_subq = _dialog_user_message_counts_subquery(db)
+    effective_request_count = _effective_request_count_expr(message_counts_subq)
+
     total_dialogs = db.query(func.count(Dialog.id)).scalar() or 0
-    total_messages = db.query(func.sum(Dialog.request_count)).scalar() or 0
+    total_requests = db.query(
+        func.sum(effective_request_count)
+    ).outerjoin(
+        message_counts_subq, message_counts_subq.c.dialog_id == Dialog.id
+    ).scalar() or 0
     total_users = db.query(func.count(func.distinct(Dialog.user_id))).scalar() or 0
 
     return {
         "totalDialogs": total_dialogs,
-        "totalMessages": total_messages,
+        "totalRequests": total_requests,
+        "totalMessages": total_requests,
         "totalUsers": total_users,
     }
+
+
+@admin_router.get("/stats/users")
+async def get_user_stats(
+    keyword: Optional[str] = Query(None, description="搜索关键词（姓名/工号/用户ID）"),
+    lanName: Optional[str] = Query(None, description="地市筛选"),
+    regionName: Optional[str] = Query(None, description="区县筛选"),
+    staffPosType: Optional[str] = Query(None, description="岗位筛选"),
+    sortBy: Optional[str] = Query(None, description="排序字段"),
+    sortOrder: Optional[str] = Query("desc", description="排序方向: asc/desc"),
+    page: int = Query(1, ge=1, description="页码"),
+    pageSize: int = Query(10, ge=1, le=200, description="每页条数"),
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """获取用户使用统计（支持筛选、排序、分页）"""
+    return get_user_stats_payload(db, keyword, lanName, regionName, staffPosType, sortBy, sortOrder, page, pageSize)
+
+
+@admin_router.get("/stats/users/export")
+async def export_user_stats(
+    keyword: Optional[str] = Query(None),
+    lanName: Optional[str] = Query(None),
+    regionName: Optional[str] = Query(None),
+    staffPosType: Optional[str] = Query(None),
+    sortBy: Optional[str] = Query(None),
+    sortOrder: Optional[str] = Query("desc"),
+    db: Session = Depends(get_db),
+    _admin=Depends(get_current_admin),
+):
+    """导出用户使用统计为 CSV"""
+    return export_user_stats_response(db, keyword, lanName, regionName, staffPosType, sortBy, sortOrder)
+
+
+@admin_router.get("/stats/filters")
+async def get_stats_filter_options(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
+    """获取筛选下拉选项"""
+    return get_stats_filter_options_payload(db)
+
+
+@admin_router.get("/stats/overview")
+async def get_overview_stats(db: Session = Depends(get_db), _admin=Depends(get_current_admin)):
+    """获取总览统计"""
+    return get_overview_stats_payload(db)
 
 
 # ==================== 对话详情接口 ====================
@@ -386,13 +444,18 @@ async def get_dialog(
         raise HTTPException(status_code=404, detail="对话不存在")
     if dialog.user_id != current_user["user_id"]:
         raise HTTPException(status_code=403, detail="无权访问此对话")
+    user_message_count = db.query(func.count(DialogMessage.id)).filter(
+        DialogMessage.dialog_id == dialog_id,
+        DialogMessage.role == "user",
+    ).scalar() or 0
+    request_count = max(dialog.request_count or 0, user_message_count)
     return {
         "id": dialog.id,
         "userId": dialog.user_id,
         "toolId": dialog.tool_id,
         "toolName": dialog.tool_name,
         "title": dialog.title,
-        "requestCount": dialog.request_count,
+        "requestCount": request_count,
         "createdAt": format_shanghai_iso(dialog.created_at),
         "updatedAt": format_shanghai_iso(dialog.updated_at),
     }
@@ -468,7 +531,16 @@ async def admin_list_dialogs(
     """管理员获取指定用户对话列表。"""
     query = db.query(Dialog).filter(Dialog.user_id == userId)
     total = query.count()
-    dialogs = query.order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
+    message_counts_subq = _dialog_user_message_counts_subquery(db)
+    effective_request_count = _effective_request_count_expr(message_counts_subq).label("effective_request_count")
+    rows = db.query(
+        Dialog,
+        effective_request_count,
+    ).outerjoin(
+        message_counts_subq, message_counts_subq.c.dialog_id == Dialog.id
+    ).filter(
+        Dialog.user_id == userId
+    ).order_by(Dialog.updated_at.desc()).offset((page - 1) * pageSize).limit(pageSize).all()
     return {
         "items": [
             {
@@ -477,11 +549,11 @@ async def admin_list_dialogs(
                 "toolId": d.tool_id,
                 "toolName": d.tool_name,
                 "title": d.title,
-                "requestCount": d.request_count,
+                "requestCount": request_count or 0,
                 "createdAt": format_shanghai_iso(d.created_at),
                 "updatedAt": format_shanghai_iso(d.updated_at),
             }
-            for d in dialogs
+            for d, request_count in rows
         ],
         "total": total,
         "page": page,

@@ -163,6 +163,34 @@
   padding: 24px;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.tabBtn {
+  padding: 12px 18px;
+  background: transparent;
+  color: #666;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+
+.tabBtn:hover {
+  color: #1890ff;
+}
+
+.tabBtnActive {
+  color: #1890ff;
+  border-bottom-color: #1890ff;
+}
+
 .toolbar {
   display: flex;
   justify-content: space-between;
@@ -197,7 +225,7 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+  overflow: auto;
 }
 
 .table {
@@ -350,6 +378,11 @@
   background: #40a9ff;
 }
 
+.confirmBtn:disabled {
+  background: #d9d9d9;
+  cursor: not-allowed;
+}
+
 .boundUser {
   display: inline-block;
   padding: 2px 8px;
@@ -371,4 +404,341 @@
   color: #999;
   margin: 4px 0 0 0;
   line-height: 1.5;
+}
+
+.userSummary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 180px;
+}
+
+.userName {
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.userMeta {
+  color: #8c8c8c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.userSearch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.searchStatus {
+  padding: 10px 12px;
+  color: #8c8c8c;
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.selectedHint {
+  color: #1890ff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.userCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.userCard {
+  width: 100%;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.userCard:hover {
+  border-color: #91d5ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.12);
+}
+
+.userCardSelected {
+  background: #e6f7ff;
+  border-color: #1890ff;
+}
+
+.userCardHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #1a1a1a;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.userCardHeader span {
+  color: #1890ff;
+  font-family: monospace;
+}
+
+.userCardMeta {
+  color: #666;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.statsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.statsOverview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.statCard {
+  background: white;
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  border-left: 4px solid #1890ff;
+}
+
+.statCard:nth-child(2) {
+  border-left-color: #52c41a;
+}
+
+.statCard:nth-child(3) {
+  border-left-color: #faad14;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1a1a1a;
+  line-height: 1.2;
+}
+
+.statLabel {
+  margin-top: 6px;
+  color: #8c8c8c;
+  font-size: 13px;
+}
+
+.statsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.statsSectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.exportBtn {
+  padding: 10px 16px;
+  background: #52c41a;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.exportBtn:hover {
+  background: #73d13d;
+}
+
+.statsFilterBar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filterInput {
+  min-width: 240px;
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.filterInput:focus {
+  border-color: #1890ff;
+}
+
+.filterSelect {
+  min-width: 120px;
+  padding: 10px 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  background: white;
+  color: #333;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+}
+
+.filterSelect:focus {
+  border-color: #1890ff;
+}
+
+.sortableTh {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sortableTh:hover {
+  color: #1890ff;
+}
+
+.sortIcon {
+  margin-left: 2px;
+  color: #bfbfbf;
+  font-size: 12px;
+}
+
+.emptyCell {
+  padding: 40px 16px !important;
+  text-align: center !important;
+  color: #bfbfbf !important;
+}
+
+.monospace {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #1890ff !important;
+}
+
+.pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.pageInfo {
+  color: #666;
+  font-size: 13px;
+}
+
+.pageButtons {
+  display: flex;
+  gap: 8px;
+}
+
+.pageBtn {
+  padding: 8px 14px;
+  background: white;
+  color: #333;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.pageBtn:hover:not(:disabled) {
+  color: #1890ff;
+  border-color: #1890ff;
+}
+
+.pageBtn:disabled {
+  color: #bfbfbf;
+  cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .container {
+    min-height: 100dvh;
+  }
+
+  .card {
+    position: static;
+    width: auto;
+    max-width: none;
+    margin: 20px;
+    padding: 28px 20px;
+    transform: none;
+  }
+
+  .headerBar {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .pageTitle {
+    font-size: 17px;
+  }
+
+  .content {
+    padding: 14px;
+  }
+
+  .tabs {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .tabBtn {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .createBtn,
+  .exportBtn,
+  .logoutBtn,
+  .pageBtn {
+    min-height: 40px;
+  }
+
+  .tableWrapper {
+    width: 100%;
+  }
+
+  .table {
+    min-width: 760px;
+  }
+
+  .statsOverview {
+    grid-template-columns: 1fr;
+  }
+
+  .statsSectionHeader,
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .filterInput,
+  .filterSelect {
+    min-width: 0;
+    width: 100%;
+  }
 }

@@ -19,7 +19,11 @@ def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(securi
     if not admin_id_str.startswith("admin:"):
         raise HTTPException(status_code=401, detail="无效的管理员token")
 
-    admin_id = int(admin_id_str.split(":")[1])
+    try:
+        admin_id = int(admin_id_str.split(":", 1)[1])
+    except (IndexError, ValueError):
+        raise HTTPException(status_code=401, detail="无效的管理员token")
+
     admin = db.query(Admin).filter(Admin.id == admin_id).first()
     if not admin:
         raise HTTPException(status_code=401, detail="管理员不存在")

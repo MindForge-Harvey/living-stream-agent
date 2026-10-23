@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # JWT 配置
     SECRET_KEY: str = ""
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24小时
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8小时
 
     # OpenAI 配置
     OPENAI_API_KEY: str = ""
@@ -66,12 +66,30 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "any"
 
     # CORS 配置
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:5172",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "http://10.131.227.26:5172",
+        "http://10.142.238.36:8080",
+        "http://10.142.175.197:8080",
+        "http://10.142.175.198:8080",
+        "http://10.142.175.199:8080",
+        "http://10.142.175.200:8080",
+        "http://10.142.175.201:8080",
+    ]
 
     # 部署配置
-    REDIRECT_URL: str = "/test/login"
-    ENABLE_TEST_PLATFORM: bool = True
-    PLATFORM_ENTRY_TOKEN: str = "5s9D2g7F0k3j6P1r8T4b7N2m5Z9x0C3v7B1n4A6q8w2E5r7t9y1u3i5o7p0a2s4d6f8g"
+    PLATFORM_ENTRY_TOKEN: str = ""
+    IAM_CHECK_TICKET_URL: str = "http://10.142.135.40:80/authn/aisauth/checkTicket"
+    IAM_APP_CODE: str = "00001"
+    IAM_REQUEST_TIMEOUT_SECONDS: float = 5.0
+    SUPER_ADMIN_INITIAL_PASSWORD: str = ""
+    AUTH_RATE_LIMIT_MAX_FAILURES: int = 5
+    AUTH_RATE_LIMIT_WINDOW_SECONDS: int = 300
+    AUTH_LOCK_SECONDS: int = 900
+    MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+    ALLOWED_UPLOAD_EXTENSIONS: str = ".txt,.docx,.pdf,.xlsx,.xls"
 
     @property
     def DATABASE_URL(self) -> str:

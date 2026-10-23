@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
-import { authHeaders, callAgent, fetchForbiddenWords } from './api/index'
+import { authHeaders, callAgent, fetchForbiddenWords, fetchSuggestedQuestions } from './api/index'
+import { apiUrl } from './api/base'
 import Sidebar from './components/Sidebar/Sidebar'
 import ChatHeader from './components/ChatHeader/ChatHeader'
 import ChatArea from './components/ChatArea/ChatArea'
@@ -16,11 +17,6 @@ const AGENT_INFO = {
   desc: '生成、评估、优化直播脚本',
   icon: '🎙️',
   color: '#2563EB',
-  suggestions: [
-    '帮我生成一段护肤品的直播脚本',
-    '对以下直播话术进行打分',
-    '优化这段直播话术',
-  ]
 }
 
 function getTime() {
@@ -44,6 +40,7 @@ export default function App({ userInfo }) {
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false)
   const [inputText, setInputText] = useState('')
   const [isAdminUser, setIsAdminUser] = useState(false)
+  const [suggestedQuestions, setSuggestedQuestions] = useState([])
   const abortControllerRef = useRef(null)
   const messagesRef = useRef(messages)
   const dialogLoadSeqRef = useRef(0)
@@ -62,7 +59,7 @@ export default function App({ userInfo }) {
     const loadDialogs = async () => {
       try {
         setLoadingDialogs(true)
-        const res = await fetch('/chat/api/conversations?pageSize=100', {
+        const res = await fetch(apiUrl('/chat/api/conversations?pageSize=100'), {
           headers: authHeader,
         })
         if (res.ok) {
@@ -85,7 +82,7 @@ export default function App({ userInfo }) {
         return
       }
       try {
-        const res = await fetch('/chat/api/admin/me-by-user', {
+        const res = await fetch(apiUrl('/chat/api/admin/me-by-user'), {
           headers: authHeader,
         })
         if (!res.ok) {
@@ -104,7 +101,7 @@ export default function App({ userInfo }) {
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const res = await fetch('/chat/api/health')
+        const res = await fetch(apiUrl('/chat/api/health'))
         const data = await res.json()
         setConnectionStatus({ connected: data.status === 'ok' })
       } catch {
@@ -128,9 +125,22 @@ export default function App({ userInfo }) {
     loadForbiddenWords()
   }, [])
 
+  useEffect(() => {
+    const loadSuggestedQuestions = async () => {
+      try {
+        const data = await fetchSuggestedQuestions()
+        setSuggestedQuestions((data || []).map(item => item.content).filter(Boolean).slice(0, 3))
+      } catch (err) {
+        console.error('加载推荐问题失败:', err)
+        setSuggestedQuestions([])
+      }
+    }
+    loadSuggestedQuestions()
+  }, [])
+
   const loadDialogMessages = useCallback(async (dialogId) => {
     try {
-      const res = await fetch(`/chat/api/conversations/${dialogId}/messages`, {
+      const res = await fetch(apiUrl(`/chat/api/conversations/${dialogId}/messages`), {
         headers: authHeader,
       })
       if (res.ok) {
@@ -177,7 +187,7 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch('/chat/api/conversations', {
+      const res = await fetch(apiUrl('/chat/api/conversations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),
@@ -207,7 +217,7 @@ export default function App({ userInfo }) {
   const deleteDialog = useCallback(async (dialogId) => {
     if (!confirm('确定删除此对话？')) return
     try {
-      const res = await fetch(`/chat/api/conversations/${dialogId}`, {
+      const res = await fetch(apiUrl(`/chat/api/conversations/${dialogId}`), {
         method: 'DELETE',
         headers: authHeader,
       })
@@ -248,7 +258,7 @@ export default function App({ userInfo }) {
     }
 
     try {
-      const res = await fetch('/chat/api/conversations', {
+      const res = await fetch(apiUrl('/chat/api/conversations'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader },
         body: JSON.stringify(requestData),
@@ -289,21 +299,6 @@ export default function App({ userInfo }) {
       }
       setMessages(prev => [...prev, userMsg])
 
-      try {
-        await fetch('/chat/api/conversations/message', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeader },
-          body: JSON.stringify({
-            dialogId: dialog.id,
-            userId: userId,
-            role: 'user',
-            content: text,
-          }),
-        })
-      } catch (err) {
-        console.error('保存用户消息失败:', err)
-      }
-
       setIsTyping(true)
       const placeholderMsg = { role: 'assistant', content: '', time: getTime() }
       setMessages(prev => [...prev, placeholderMsg])
@@ -312,7 +307,7 @@ export default function App({ userInfo }) {
       abortControllerRef.current = controller
 
       try {
-        const result = await callAgent(dialog.id, text, file, (partialText) => {
+        await callAgent(dialog.id, text, file, (partialText) => {
           setMessages(prev => {
             const updated = [...prev]
             const lastIdx = updated.length - 1
@@ -322,23 +317,6 @@ export default function App({ userInfo }) {
             return updated
           })
         }, controller.signal)
-
-        if (result) {
-          try {
-            await fetch('/chat/api/conversations/message', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...authHeader },
-              body: JSON.stringify({
-                dialogId: dialog.id,
-                userId: userId,
-                role: 'assistant',
-                content: result,
-              }),
-            })
-          } catch (err) {
-            console.error('保存助手消息失败:', err)
-          }
-        }
       } catch (err) {
         if (err.name === 'AbortError') {
           setMessages(prev => {
@@ -433,10 +411,20 @@ ${template.template_content}
         onSelectDialog={selectDialog}
         onNewChat={createNewDialog}
         onDeleteDialog={deleteDialog}
+        onClose={() => setSidebarOpen(false)}
         open={sidebarOpen}
         connectionStatus={connectionStatus}
         userInfo={userInfo}
       />
+      {sidebarOpen && (
+        <button
+          type="button"
+          className={styles.sidebarOverlay}
+          aria-label="关闭对话列表"
+          onClick={() => setSidebarOpen(false)}
+          onTouchStart={() => setSidebarOpen(false)}
+        />
+      )}
       <main className={styles.main}>
         <ChatHeader
           tool={AGENT_INFO}
@@ -490,17 +478,19 @@ ${template.template_content}
                   initialValue={inputText}
                 />
               </div>
-              <div className={styles.suggestions}>
-                {AGENT_INFO.suggestions.map((text, i) => (
-                  <button
-                    key={i}
-                    className={styles.suggestionBtn}
-                    onClick={() => sendMessage(text)}
-                  >
-                    {text}
-                  </button>
-                ))}
-              </div>
+              {suggestedQuestions.length > 0 && (
+                <div className={styles.suggestions}>
+                  {suggestedQuestions.map((text, i) => (
+                    <button
+                      key={`${text}-${i}`}
+                      className={styles.suggestionBtn}
+                      onClick={() => sendMessage(text)}
+                    >
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

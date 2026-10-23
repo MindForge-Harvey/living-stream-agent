@@ -983,6 +983,42 @@
   padding: 24px;
 }
 
+.configContainer {
+  padding: 24px;
+}
+
+.configHeader {
+  margin-bottom: 24px;
+}
+
+.configHeader h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.configDesc {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.configContent {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 24px;
+  max-width: 720px;
+}
+
+.configActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
 .scoringHeader {
   margin-bottom: 24px;
 }
@@ -1452,4 +1488,132 @@
 .wordCell {
   font-weight: 500;
   color: #dc2626;
+}
+
+@media (max-width: 768px) {
+  .container {
+    height: 100dvh;
+  }
+
+  .header {
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .headerLeft,
+  .headerRight {
+    flex-wrap: wrap;
+  }
+
+  .headerRight {
+    justify-content: flex-end;
+  }
+
+  .title {
+    font-size: 16px;
+  }
+
+  .homeBtn,
+  .passwordBtn,
+  .logoutBtn {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    padding: 8px 0;
+    border-right: none;
+    border-bottom: 1px solid #e5e7eb;
+    overflow-x: auto;
+  }
+
+  .tabNav {
+    flex-direction: row;
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .tabBtn {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 9px 12px;
+    white-space: nowrap;
+  }
+
+  .main {
+    width: 100%;
+    max-width: none;
+    padding: 14px;
+    box-sizing: border-box;
+  }
+
+  .toolbar,
+  .toolbarActions,
+  .pagination,
+  .statsSectionHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .searchBox,
+  .filterSearchBox {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .addBtn,
+  .downloadBtn,
+  .importBtn,
+  .clearAllBtn,
+  .exportBtn,
+  .pageBtn {
+    justify-content: center;
+    min-height: 40px;
+  }
+
+  .tableWrapper {
+    max-height: none;
+    border-radius: 8px;
+  }
+
+  .table {
+    min-width: 760px;
+  }
+
+  .dialog {
+    width: 100%;
+    max-height: calc(100dvh - 28px);
+  }
+
+  .overlay {
+    padding: 14px;
+  }
+
+  .dialogActions {
+    flex-direction: column-reverse;
+  }
+
+  .cancelBtn,
+  .saveBtn {
+    width: 100%;
+  }
+
+  .statsOverview {
+    grid-template-columns: 1fr;
+  }
+
+  .statsFilterBar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .filterSelect {
+    width: 100%;
+  }
 }
